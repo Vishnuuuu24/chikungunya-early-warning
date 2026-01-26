@@ -1,0 +1,79 @@
+# Chikungunya EWS .gitignore
+
+# Data - COMMIT all data so collaborators can run immediately
+# (Raw data, processed features, everything needed to reproduce)
+
+# Only ignore interim working files
+data/interim/
+
+# Results - COMMIT metrics for reproducibility
+# Only ignore large/regeneratable outputs
+results/predictions/*.csv
+results/plots/*.png
+results/plots/*.pdf
+results/reports/*.html
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+chikungunya_ews_env/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Stan compiled models
+*.hpp
+*.o
+*.exe
+
+# Logs
+*.log
+logs/
+
+# Temporary
+tmp/
+temp/
+*.tmp
+
+# Keep versions/ tracked (frozen milestones)
+!versions/
+!versions/**
