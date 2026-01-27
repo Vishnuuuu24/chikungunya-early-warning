@@ -31,7 +31,11 @@ Build an operational early-warning and decision-support system that:
 Achieve 2–4 weeks lead time in detecting outbreak transitions at district level, with acceptably low false alarm rates, using hierarchical Bayesian fusion of case + climate data.
 
 **Secondary Goal:**  
-Demonstrate that latent state-space modeling outperforms standard classification approaches for this problem, and provide a template for global early-warning systems.
+Demonstrate that Bayesian latent risk estimation provides decision-theoretic advantages over binary classification:
+- Earlier warning (positive lead time)
+- Explicit uncertainty quantification
+- Better calibrated decisions under cost-loss constraints
+- Hybrid ML-Bayesian fusion improves operational utility
 
 ---
 
@@ -70,15 +74,16 @@ Demonstrate that latent state-space modeling outperforms standard classification
                ↓
 ┌──────────────────────────────────────────────────────────────┐
 │ BLOCK 3: LATENT RISK INFERENCE (CORE MODEL)                  │
-│ └─ Track A: Supervised Baselines (5 models)                 │
-│    └─ Track B: Bayesian Hierarchical State-Space (1 main)   │
-│    └─ Compare on EWS metrics                                │
+│ └─ Track A: ML Classifiers (RF, XGBoost, Logistic, etc.)    │
+│    └─ Track B: Bayesian Latent Risk Estimator               │
+│    └─ Evaluate using BOTH classification AND decision metrics│
 └──────────────┬───────────────────────────────────────────────┘
                ↓
 ┌──────────────────────────────────────────────────────────────┐
 │ BLOCK 4: VALIDATION & COMPARISON                             │
 │ └─ Rolling-origin temporal CV (no data leakage)             │
-│    └─ Metrics: AUC, lead time, false alarm rate, Brier score│
+│    └─ Track A: AUC, AUPR, Precision, Recall, F1             │
+│    └─ Track B: Lead time, decision quality, cost-loss       │
 └──────────────┬───────────────────────────────────────────────┘
                ↓
 ┌──────────────────────────────────────────────────────────────┐
@@ -135,8 +140,9 @@ Demonstrate that latent state-space modeling outperforms standard classification
 | **Lead time** | ≥ 2 weeks (ideally 3–4) | Enough time for vector control deployment |
 | **False alarm rate** | < 20% | Don't cry wolf; maintain trust |
 | **Sensitivity** | ≥ 80% | Catch most outbreaks; low miss rate |
-| **Transferability** | Works on Brazil data | Shows generalization beyond India |
+| **Decision quality** | Net benefit > 0 | Cost-loss analysis favors intervention |
 | **Interpretability** | Feature importance + mechanistic explanation | Public health stakeholders can understand why |
+| **Transferability** | Works on Brazil data | Shows generalization beyond India |
 
 ---
 
