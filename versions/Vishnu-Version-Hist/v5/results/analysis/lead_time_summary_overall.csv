@@ -1,0 +1,8 @@
+Metric,Bayesian,XGBoost,Interpretation
+N episodes,4,4,Total outbreak episodes analyzed
+N warned,3,1,Episodes where model triggered
+Median lead time (weeks),0.0,0.0,Median advance warning
+Mean lead time (weeks),5.00,0.00,Average advance warning
+IQR,"[0.0, 7.5]","[0.0, 0.0]",Interquartile range of lead times
+% early warned (≥1 week),25.0%,0.0%,Fraction with actionable warning
+% never warned,25.0%,75.0%,Fraction of missed outbreaks

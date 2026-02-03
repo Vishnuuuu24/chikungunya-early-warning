@@ -1,0 +1,32 @@
+FIGURE: Decision State Timeline (ILLUSTRATIVE EXAMPLE)
+============================================================
+
+WHAT IS SHOWN:
+Timeline showing decision states (GREEN/YELLOW/RED) over 52 weeks for
+Bayesian and XGBoost models. Each colored segment represents one week's
+operational decision state.
+
+ILLUSTRATIVE NOTE:
+This figure shows SIMULATED state transitions for demonstration purposes.
+Actual decision states would require:
+- Defined risk thresholds for YELLOW/RED transitions
+- Operational rules for state persistence and de-escalation
+- Per-district prediction storage (not currently implemented)
+
+WHY IT MATTERS:
+- GREEN: Normal operations, routine surveillance
+- YELLOW: Heightened surveillance, prepare resources
+- RED: Outbreak response, deploy intervention teams
+State transitions indicate when public health action should change.
+More stable timelines (fewer transitions) are operationally preferable
+as they reduce alert fatigue and resource churn.
+
+HOW TO INTERPRET:
+- Compare transition frequency between models
+- Assess whether state changes align with actual outbreak timing
+- Evaluate stability vs. responsiveness trade-off
+
+CAVEATS:
+- This is an ILLUSTRATIVE example with simulated data
+- Actual implementation requires operational threshold definitions
+- Decision layer specification in docs/Version 2/04_decision_layer_minimal_spec_v2.md

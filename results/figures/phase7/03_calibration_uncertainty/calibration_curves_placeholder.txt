@@ -1,0 +1,36 @@
+FIGURE: Calibration Curves (PLACEHOLDER)
+============================================================
+
+PLACEHOLDER STATUS:
+This figure is intentionally empty. It requires stored prediction
+probabilities which were not saved during the current analysis pipeline.
+
+WHAT WOULD BE SHOWN:
+Reliability diagram (calibration curve) showing:
+- X-axis: Mean predicted probability (binned)
+- Y-axis: Observed fraction of outbreaks in each bin
+- Diagonal line: Perfect calibration reference
+- XGBoost curve: Probability calibration
+- (Optional) Bayesian curve: Posterior predictive probability
+
+WHY IT MATTERS:
+- Points ABOVE diagonal = underconfidence (observed > predicted)
+- Points BELOW diagonal = overconfidence (observed < predicted)
+- Perfect calibration lies on the diagonal
+- Brier score provides scalar summary of calibration quality
+
+WHY IT IS NOT POPULATED:
+- Current pipeline evaluates predictions without storing them
+- Calibration curves require (predicted_prob, true_label) pairs
+- Would need to modify 06_analyze_lead_time.py to save predictions
+
+IMPORTANT CAVEAT FOR BAYESIAN MODEL:
+Bayesian model outputs continuous latent risk Z_t, NOT probability.
+Calibration interpretation differs fundamentally:
+- XGBoost: P_t ∈ [0,1] is a probability estimate
+- Bayesian: Z_t ∈ ℝ is an unbounded risk score
+Direct calibration comparison requires transforming Z_t to probability
+space (e.g., via sigmoid or empirical CDF).
+
+FUTURE IMPLEMENTATION:
+See experiments/10_comprehensive_metrics.py for calibration analysis.

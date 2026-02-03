@@ -110,139 +110,6 @@ OUTBREAK_PERCENTILE = DEFAULT_OUTBREAK_PERCENTILE  # 80
 BAYESIAN_PERCENTILE = DEFAULT_BAYESIAN_THRESHOLD_PERCENTILE  # 75
 XGBOOST_THRESHOLD = DEFAULT_XGBOOST_THRESHOLD  # 0.5
 
-# =============================================================================
-# FAIR ANALYSIS MODE (v4.2)
-# =============================================================================
-# For symmetric comparison, use the SAME percentile threshold for BOTH models,
-# computed from TRAINING predictions only. This answers:
-# "Which model ranks outbreak escalation earlier?"
-#
-# - Bayesian: Z_t > q_k(Z_train)
-# - XGBoost:  P_t > q_k(P_train)
-#
-# This is more scientifically fair than using fixed 0.5 for XGBoost.
-# =============================================================================
-
-ANALYSIS_MODE_PERCENTILE = 75  # Same percentile for both models
-USE_FAIR_ANALYSIS_MODE = True  # Set False to revert to original (fixed 0.5)
-
-
-# =============================================================================
-# FAIR ANALYSIS HELPER FUNCTIONS (v4.2)
-# =============================================================================
-
-def compute_xgboost_training_predictions(
-    train_df: pd.DataFrame,
-    feature_cols: List[str],
-    target_col: str = 'label_outbreak'
-) -> pd.DataFrame:
-    """
-    Get XGBoost predictions on TRAINING data for threshold computation.
-    
-    Uses cross-validation style prediction: for each sample, predict using
-    a model trained on other samples. This avoids overfitting the threshold.
-    
-    For simplicity in this implementation, we use the full training model
-    applied back to training data. The threshold is still valid as it represents
-    the model's typical output distribution.
-    
-    Args:
-        train_df: Training DataFrame
-        feature_cols: Feature column names
-        target_col: Target column name
-        
-    Returns:
-        Training DataFrame with 'prob' column
-    """
-    from src.models.baselines.xgboost_model import XGBoostBaseline
-    
-    X_train = train_df[feature_cols].values
-    y_train = train_df[target_col].values
-    X_train = np.nan_to_num(X_train, nan=0.0)
-    
-    model = XGBoostBaseline({})
-    model.fit(X_train, y_train)
-    probs = model.predict_proba(X_train)
-    
-    pred_df = train_df[['state', 'district', 'year', 'week', 'cases']].copy()
-    pred_df['prob'] = probs
-    
-    return pred_df
-
-
-def compute_percentile_threshold_from_predictions(
-    pred_df: pd.DataFrame,
-    value_col: str,
-    percentile: int = ANALYSIS_MODE_PERCENTILE
-) -> float:
-    """
-    Compute global percentile threshold from prediction values.
-    
-    For fair comparison, we use a GLOBAL threshold (not district-specific)
-    so both models are on equal footing.
-    
-    Args:
-        pred_df: Predictions DataFrame
-        value_col: Column to compute percentile on ('prob' or 'z_mean')
-        percentile: Percentile (default: 75)
-        
-    Returns:
-        Threshold value
-    """
-    values = pred_df[value_col].dropna()
-    if len(values) == 0:
-        raise ValueError(f"No valid values in column {value_col}")
-    
-    return float(np.percentile(values, percentile))
-
-
-def compute_fair_thresholds_from_training(
-    train_df: pd.DataFrame,
-    feature_cols: List[str],
-    target_col: str = 'label_outbreak',
-    percentile: int = ANALYSIS_MODE_PERCENTILE
-) -> Tuple[float, float]:
-    """
-    Compute BOTH Bayesian and XGBoost thresholds from TRAINING data.
-    
-    This implements the fair analysis mode where:
-    - Bayesian threshold = percentile of Z_t on training predictions
-    - XGBoost threshold = percentile of P_t on training predictions
-    
-    NOTE: Bayesian predictions on training data require fitting the model.
-    For efficiency, we approximate using the XGBoost distribution characteristics.
-    
-    In practice, for this thesis, we use:
-    - XGBoost: actual training predictions
-    - Bayesian: training predictions from the combined model (already fitted)
-    
-    Args:
-        train_df: Training DataFrame (NaN-filtered)
-        feature_cols: Feature column names
-        target_col: Target column name
-        percentile: Percentile for both thresholds
-        
-    Returns:
-        Tuple of (bayesian_threshold, xgboost_threshold)
-    """
-    # Compute XGBoost threshold from training predictions
-    xgb_train_preds = compute_xgboost_training_predictions(
-        train_df, feature_cols, target_col
-    )
-    xgb_threshold = compute_percentile_threshold_from_predictions(
-        xgb_train_preds, 'prob', percentile
-    )
-    
-    print(f"    XGBoost p{percentile} threshold from training: {xgb_threshold:.4f}")
-    
-    # For Bayesian, we need training predictions but the model fits on combined data
-    # We'll compute the Bayesian threshold from the combined model's training portion
-    # This is handled in analyze_single_fold where we have access to the fit model
-    # Return a placeholder that will be overwritten
-    bayesian_threshold = None  # Computed later from actual Bayesian fit
-    
-    return bayesian_threshold, xgb_threshold
-
 
 # =============================================================================
 # DATA LOADING
@@ -373,31 +240,19 @@ def train_bayesian_and_predict(
     Train Bayesian state-space model and generate predictions for test data.
     
     This extracts the latent risk Z_t (posterior mean) for each observation.
-    The Bayesian model fits on combined train+test data (standard for state-space
-    models) but we only extract predictions for test rows.
+    Since the Bayesian model fits on the training data, we need to 
+    extrapolate/predict for the test period.
     
-    IMPORTANT: Both train_df and test_df must be NaN-filtered (valid samples only)
-    to ensure alignment with XGBoost predictions.
-    
-    ==========================================================================
-    CRITICAL FIX (v4.2): Handle duplicate (state, district, year, week) keys
-    ==========================================================================
-    
-    The data contains duplicate keys. We handle this by:
-      1. Assigning a unique row ID to each row BEFORE concatenation
-      2. Tracking which IDs belong to test data
-      3. After model fitting, extracting by row ID (NOT by 4-tuple key)
-    
-    ==========================================================================
+    For lead-time analysis, we use the posterior predictive distribution
+    to estimate risk for the test period.
     
     Args:
-        train_df: Training DataFrame (NaN-filtered)
-        test_df: Test DataFrame (NaN-filtered)
+        train_df: Training DataFrame
+        test_df: Test DataFrame  
         feature_cols: Feature column names
         
     Returns:
         Test DataFrame with added 'z_mean' and 'z_sd' columns
-        Guaranteed: len(output) == len(test_df)
     """
     from src.models.bayesian.state_space import BayesianStateSpace
     
@@ -410,114 +265,59 @@ def train_bayesian_and_predict(
         'stan_file': str(stan_path)
     }
     
-    # =========================================================================
-    # Step 1: Assign unique row IDs BEFORE concatenation
-    # =========================================================================
-    # This is the ONLY way to track rows through sorting when keys aren't unique
+    # Prepare combined data for fitting
+    # The Bayesian model needs to see the full time series including test
+    # but we only use test for predictions
+    combined_df = pd.concat([train_df, test_df], ignore_index=True)
+    combined_df = combined_df.sort_values(['state', 'district', 'year', 'week']).reset_index(drop=True)
     
-    train_copy = train_df.copy()
-    test_copy = test_df.copy()
-    
-    # Assign globally unique row IDs
-    train_copy['_unique_row_id'] = range(len(train_copy))
-    test_copy['_unique_row_id'] = range(len(train_copy), len(train_copy) + len(test_copy))
-    
-    # Track which IDs are test rows
-    test_row_ids = set(test_copy['_unique_row_id'])
-    
-    # Also store the original test order
-    test_copy['_test_order'] = range(len(test_copy))
-    train_copy['_test_order'] = -1  # Sentinel
-    
-    # Concatenate
-    combined_df = pd.concat([train_copy, test_copy], ignore_index=True)
-    
-    # =========================================================================
-    # Step 2: Sort for Stan model (required for state-space structure)
-    # =========================================================================
-    # The model expects data sorted by district and time
-    # We add a secondary sort by _unique_row_id to ensure deterministic ordering
-    # when (state, district, year, week) has ties (duplicates)
-    
-    combined_df = combined_df.sort_values(
-        ['state', 'district', 'year', 'week', '_unique_row_id']
-    ).reset_index(drop=True)
-    
-    # Store the position in sorted order for later mapping
-    combined_df['_sorted_position'] = range(len(combined_df))
-    
-    n_total = len(combined_df)
-    print(f"    Combined data: {n_total} samples ({len(train_df)} train + {len(test_df)} test)")
-    
-    # =========================================================================
-    # Step 3: Fit Bayesian model
-    # =========================================================================
+    # Train model on combined data (to get latent states for test period)
+    # Note: This is standard for state-space models - we fit on all available data
+    # but evaluate only on the test period
     model = BayesianStateSpace(config=model_config)
     
     X_combined = combined_df[feature_cols].values
     y_combined = combined_df['cases'].values
     
-    print(f"    Fitting Bayesian model on {n_total} samples...")
+    print(f"    Fitting Bayesian model on {len(combined_df)} samples...")
     model.fit(X_combined, y_combined, df=combined_df, feature_cols=feature_cols)
     
     # Get posterior predictive for all time points
     y_rep = model.get_posterior_predictive()  # Shape: (n_draws, N)
     
-    # ASSERTION: y_rep must have exactly N columns
-    if y_rep.shape[1] != n_total:
-        raise RuntimeError(
-            f"STATE-SPACE INDEXING ERROR: y_rep has {y_rep.shape[1]} columns "
-            f"but combined_df has {n_total} rows. "
-            f"This indicates a fundamental mismatch in the Stan model output."
-        )
-    
     # Compute summary statistics
     z_mean = y_rep.mean(axis=0)
     z_sd = y_rep.std(axis=0)
     
-    # =========================================================================
-    # Step 4: Assign z_mean to the sorted DataFrame
-    # =========================================================================
-    # y_rep[i] corresponds to combined_df.iloc[i] in SORTED order
+    # Map back to test samples only
+    # We need to identify which rows in combined_df correspond to test_df
+    n_train = len(train_df)
+    n_test = len(test_df)
+    
+    # The combined_df is sorted, so test samples are at the end
+    # But we need to match by (state, district, year, week)
     combined_df['_z_mean'] = z_mean
     combined_df['_z_sd'] = z_sd
     
-    # =========================================================================
-    # Step 5: Extract test predictions by unique row ID
-    # =========================================================================
-    # Filter to test rows only
-    test_preds = combined_df[combined_df['_unique_row_id'].isin(test_row_ids)].copy()
+    # Merge back to test_df
+    test_keys = test_df[['state', 'district', 'year', 'week']].copy()
+    test_keys['_idx'] = range(len(test_keys))
     
-    # ASSERTION: Must have exactly len(test_df) test predictions
-    if len(test_preds) != len(test_df):
-        raise RuntimeError(
-            f"TEST EXTRACTION ERROR: Found {len(test_preds)} test predictions "
-            f"but expected {len(test_df)}."
-        )
+    merged = test_keys.merge(
+        combined_df[['state', 'district', 'year', 'week', '_z_mean', '_z_sd']],
+        on=['state', 'district', 'year', 'week'],
+        how='left'
+    ).sort_values('_idx')
     
-    # Sort back to original test order
-    test_preds = test_preds.sort_values('_test_order').reset_index(drop=True)
+    # Create output DataFrame
+    pred_df = test_df[['state', 'district', 'year', 'week', 'cases']].copy()
+    pred_df['z_mean'] = merged['_z_mean'].values
+    pred_df['z_sd'] = merged['_z_sd'].values
     
-    # =========================================================================
-    # Step 6: Build output DataFrame
-    # =========================================================================
-    pred_df = test_df[['state', 'district', 'year', 'week', 'cases']].copy().reset_index(drop=True)
-    pred_df['z_mean'] = test_preds['_z_mean'].values
-    pred_df['z_sd'] = test_preds['_z_sd'].values
-    
-    # FINAL ASSERTION: Output length must match test_df exactly
-    if len(pred_df) != len(test_df):
-        raise RuntimeError(
-            f"OUTPUT LENGTH ERROR: pred_df has {len(pred_df)} rows "
-            f"but test_df has {len(test_df)} rows."
-        )
-    
-    # Check for NaN
+    # Sanity check
     n_missing = pred_df['z_mean'].isna().sum()
     if n_missing > 0:
-        warnings.warn(f"  WARNING: {n_missing} test samples have NaN Bayesian prediction")
-    
-    print(f"    Bayesian predictions: {len(pred_df)} samples")
+        warnings.warn(f"  WARNING: {n_missing} test samples have no Bayesian prediction")
     
     return pred_df
 
@@ -580,68 +380,25 @@ def analyze_single_fold(
     # -------------------------------------------------------------------------
     print(f"\n  Step 1: Training models...")
     
-    # XGBoost predictions on TEST
+    # XGBoost predictions
     print(f"    Training XGBoost...")
     xgboost_preds = train_xgboost_and_predict(train_valid, test_valid, feature_cols, target_col)
     print(f"    XGBoost predictions: {len(xgboost_preds)} samples")
     
-    # Bayesian predictions on TEST
+    # Bayesian predictions
     print(f"    Training Bayesian model (this may take a few minutes)...")
     bayesian_preds = train_bayesian_and_predict(train_valid, test_valid, feature_cols)
     print(f"    Bayesian predictions: {len(bayesian_preds)} samples")
-    
-    # -------------------------------------------------------------------------
-    # Step 1b: FAIR ANALYSIS MODE (v4.2) - Compute thresholds from TRAINING
-    # -------------------------------------------------------------------------
-    if USE_FAIR_ANALYSIS_MODE:
-        print(f"\n  Step 1b: Computing FAIR thresholds from TRAINING predictions...")
-        print(f"    Mode: Symmetric percentile-based (p{ANALYSIS_MODE_PERCENTILE})")
-        
-        # Get XGBoost training predictions
-        xgb_train_preds = compute_xgboost_training_predictions(
-            train_valid, feature_cols, target_col
-        )
-        xgb_fair_threshold = compute_percentile_threshold_from_predictions(
-            xgb_train_preds, 'prob', ANALYSIS_MODE_PERCENTILE
-        )
-        print(f"    XGBoost p{ANALYSIS_MODE_PERCENTILE} threshold: {xgb_fair_threshold:.4f}")
-        
-        # For Bayesian, we need training predictions from the combined model
-        # The Bayesian model fits on combined_df (train+test) for state-space continuity
-        # 
-        # For thesis defensibility: We use the GLOBAL percentile threshold approach
-        # where both models use the same percentile concept.
-        # The key fairness is: SAME PERCENTILE for both, NOT fixed 0.5 for XGBoost.
-        
-        bayesian_fair_threshold = float(np.percentile(
-            bayesian_preds['z_mean'].dropna(), ANALYSIS_MODE_PERCENTILE
-        ))
-        print(f"    Bayesian p{ANALYSIS_MODE_PERCENTILE} threshold: {bayesian_fair_threshold:.4f}")
-        
-        # Store for analysis output
-        fair_thresholds = {
-            'mode': 'fair_analysis',
-            'percentile': ANALYSIS_MODE_PERCENTILE,
-            'xgboost_threshold': xgb_fair_threshold,
-            'bayesian_threshold': bayesian_fair_threshold
-        }
-    else:
-        fair_thresholds = {'mode': 'original'}
-        xgb_fair_threshold = XGBOOST_THRESHOLD  # 0.5
-        bayesian_fair_threshold = None  # Use district-specific
     
     # -------------------------------------------------------------------------
     # Step 2: Initialize LeadTimeAnalyzer and compute thresholds
     # -------------------------------------------------------------------------
     print(f"\n  Step 2: Computing thresholds...")
     
-    # Set XGBoost threshold based on mode
-    effective_xgb_threshold = xgb_fair_threshold if USE_FAIR_ANALYSIS_MODE else XGBOOST_THRESHOLD
-    
     analyzer = LeadTimeAnalyzer(
         outbreak_percentile=OUTBREAK_PERCENTILE,
-        bayesian_percentile=BAYESIAN_PERCENTILE if not USE_FAIR_ANALYSIS_MODE else ANALYSIS_MODE_PERCENTILE,
-        xgboost_threshold=effective_xgb_threshold
+        bayesian_percentile=BAYESIAN_PERCENTILE,
+        xgboost_threshold=XGBOOST_THRESHOLD
     )
     
     # Compute outbreak thresholds from TRAINING data only
@@ -710,9 +467,7 @@ def analyze_single_fold(
         'bayesian_summary': bayesian_summary,
         'xgboost_summary': xgboost_summary,
         'outbreak_thresholds': dict(analyzer.outbreak_thresholds),
-        'bayesian_thresholds': dict(analyzer.bayesian_thresholds),
-        'fair_thresholds': fair_thresholds,
-        'effective_xgb_threshold': effective_xgb_threshold
+        'bayesian_thresholds': dict(analyzer.bayesian_thresholds)
     }
 
 

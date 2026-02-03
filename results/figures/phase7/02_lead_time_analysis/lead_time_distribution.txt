@@ -1,0 +1,31 @@
+FIGURE: Lead-Time Distribution: Bayesian vs XGBoost
+============================================================
+
+WHAT IS SHOWN:
+Panel A: Histogram of lead times (weeks before outbreak) for episodes
+where models triggered warning. Panel B: Box plot showing median, IQR,
+and outliers. Only includes episodes where models warned.
+
+DATA SPARSITY NOTE:
+Low visual density reflects small number of outbreak episodes (n=4 total).
+- Bayesian warned: n=3 episodes
+- XGBoost warned: n=1 episode
+This sparsity is REAL and reflects the strict episode-based evaluation
+under fair analysis mode (symmetric p75 thresholds).
+
+WHY IT MATTERS:
+Positive lead time = model warned before outbreak started.
+Higher lead time = more advance warning for public health action.
+Bayesian model is designed to capture gradual risk escalation,
+potentially warning earlier than binary classifiers.
+
+HOW TO INTERPRET:
+- Compare histogram heights between models
+- Box plot shows median (center line), IQR (box), and outliers (whiskers)
+- Bayesian mean lead time: 5.0 weeks
+- XGBoost mean lead time: 0.0 weeks
+
+CAVEATS:
+- Episodes where model never warned (lead_time = -1) are excluded
+- Small sample size limits statistical power
+- See lead_time_summary_overall.csv for complete never-warned rates

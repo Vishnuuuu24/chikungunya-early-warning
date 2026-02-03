@@ -1,0 +1,32 @@
+FIGURE: Median Lead Time by CV Fold
+============================================================
+
+WHAT IS SHOWN:
+Bar chart comparing median lead time (in weeks) for Bayesian and XGBoost
+models across each rolling-origin CV fold. Episode count (n) shown above
+each fold pair.
+
+DATA SPARSITY NOTE:
+Low bar heights and zero values reflect real data limitations:
+- 3 of 6 folds had zero detectable outbreak episodes
+- Folds with outbreaks: 2017 (n=1), 2019 (n=1), 2021 (n=2)
+- Many folds show 0 because models never warned (especially XGBoost)
+This is methodologically correct—sparse outbreaks are expected in
+Chikungunya surveillance data.
+
+WHY IT MATTERS:
+Fold-level variation reflects year-to-year differences in outbreak
+patterns. Zero values indicate either:
+- No outbreaks occurred in that test year, OR
+- Model never triggered warning for outbreaks that did occur
+
+HOW TO INTERPRET:
+- Compare bar heights: higher = more advance warning
+- 'n=0' above a fold means no outbreak episodes in that test year
+- Zero-height bars for a model mean it never warned in that fold
+
+CAVEATS:
+- Folds with zero episodes show no bars (n=0)
+- Models that never warned show 0 median (not missing data)
+- Small n per fold limits statistical power
+- See lead_time_summary_by_fold.csv for exact values

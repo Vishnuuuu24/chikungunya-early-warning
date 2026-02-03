@@ -38,3 +38,14 @@
 ## Notes
 
 *Add research notes, decisions, and observations here as the project progresses.*
+## 2026-01-26 — Phase 4.1 Bayesian Prototype Complete
+
+- v1: Baseline models (RF, Logistic, Threshold)
+- v1.1: Baselines + XGBoost (best AUC = 0.759)
+- Phase 4.1: Bayesian hierarchical state-space model
+  - Stan implementation
+  - Single-fold test (fold_2019)
+  - Model compiles, samples, PPC looks good
+  - Diagnostics not yet stable (expected)
+- Next step: Freeze v2_proto, then Phase 4.2 (stabilization)
+
