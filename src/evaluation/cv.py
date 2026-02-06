@@ -122,10 +122,13 @@ def prepare_train_test(
         train_subset = train_subset.dropna()
         test_subset = test_subset.dropna()
     
-    X_train = train_subset[feature_cols].values
-    y_train = train_subset[target_col].values
-    X_test = test_subset[feature_cols].values
-    y_test = test_subset[target_col].values
+    # Use numpy conversion with dtype=float to avoid object arrays caused by
+    # pandas nullable dtypes (e.g., Int64 with pd.NA). This preserves missing
+    # values as np.nan so downstream models can handle them consistently.
+    X_train = train_subset[feature_cols].to_numpy(dtype=float)
+    y_train = train_subset[target_col].to_numpy(dtype=float)
+    X_test = test_subset[feature_cols].to_numpy(dtype=float)
+    y_test = test_subset[target_col].to_numpy(dtype=float)
     
     return X_train, y_train, X_test, y_test
 

@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-02-06T11:02:12.864270",
+  "phase": "Phase 7 - Workstream A",
+  "version": "v4",
+  "config": {
+    "test_years": [
+      2019
+    ],
+    "lead_time_mode": "fair_quantile",
+    "outbreak_percentile": 75,
+    "bayesian_percentile": 75,
+    "analysis_percentile": 75,
+    "xgboost_probability_threshold": 0.5,
+    "mcmc_config": {
+      "n_warmup": 1000,
+      "n_samples": 1000,
+      "n_chains": 4,
+      "adapt_delta": 0.95,
+      "seed": 42
+    }
+  },
+  "folds_completed": 1,
+  "folds_failed": 0,
+  "total_episodes": 1,
+  "fold_summary": [
+    {
+      "fold": "fold_2019",
+      "test_year": 2019,
+      "n_train": 54,
+      "n_test": 21,
+      "n_episodes": 1
+    }
+  ]
+}

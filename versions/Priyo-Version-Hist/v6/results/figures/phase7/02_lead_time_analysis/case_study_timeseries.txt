@@ -1,0 +1,11 @@
+FIGURE: Case Study Time Series
+============================================================
+
+WHAT IS SHOWN:
+Three-panel time series for one outbreak episode: cases with outbreak threshold, Bayesian latent risk (z_mean) with its threshold, and XGBoost probability with its threshold. Vertical lines indicate the first threshold crossing weeks.
+
+WHY IT MATTERS:
+Illustrates the temporal relationship between rising risk signals and the onset of outbreak weeks in a single district-year.
+
+CAVEATS:
+This plot depends on stored per-row predictions produced by experiments/06_analyze_lead_time.py.

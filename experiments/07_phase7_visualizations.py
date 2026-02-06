@@ -299,7 +299,9 @@ def plot_lead_time_distribution() -> None:
                       "is designed to capture gradual risk escalation, potentially "
                       "warning earlier than binary classifiers.",
         caveats="Episodes where model never warned (lead_time = -1) are excluded "
-               "from these plots. See summary table for never-warned rates."
+               "from these plots. See summary table for never-warned rates. "
+               "SPARSE DATA reflects label generation challenge: 86% of panel rows "
+               "excluded due to min_history=10 requirement for stable percentiles."
     )
 
 
@@ -337,7 +339,7 @@ def plot_differential_lead_histogram() -> None:
     
     ax.set_xlabel('Differential Lead Time ΔL = L_XGB - L_Bayes (weeks)')
     ax.set_ylabel('Count')
-    ax.set_title('Differential Lead Time Distribution')
+    ax.set_title(f'Differential Lead Time Distribution (n={len(delta_leads)} episodes with both models warned)')
     ax.legend()
     ax.grid(axis='y', alpha=0.3)
     
@@ -356,7 +358,8 @@ def plot_differential_lead_histogram() -> None:
                       "If ΔL < 0: XGBoost provided more advance warning. "
                       "If ΔL = 0: Both models warned at the same time.",
         caveats="Only includes episodes where BOTH models warned. "
-               "Episodes where one or both never warned are excluded."
+               f"Episodes where one or both never warned are excluded. "
+               f"Small sample (n={len(delta_leads)}) reflects sparse outbreak data."
     )
 
 

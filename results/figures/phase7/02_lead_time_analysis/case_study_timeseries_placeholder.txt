@@ -1,31 +1,15 @@
-FIGURE: Case Study Time Series (PLACEHOLDER)
+FIGURE: Case Study Time Series (Placeholder)
 ============================================================
 
-PLACEHOLDER STATUS:
-This figure is intentionally empty. It requires per-district prediction
-storage which was not implemented in the current analysis pipeline.
-
-WHAT WOULD BE SHOWN:
-This figure would show 2-3 case study districts (e.g., Tumkur, Karnataka)
-with three aligned panels:
-- Panel A: Observed weekly case counts with outbreak threshold (p80)
-- Panel B: Bayesian latent risk Z_t trajectory with warning threshold
-- Panel C: XGBoost probability P_t trajectory with warning threshold
-Vertical lines would indicate first threshold crossings for each model.
+WHAT IS SHOWN:
+This figure will show 2-3 case study districts with:
+- Panel A: Observed case counts with outbreak threshold
+- Panel B: Bayesian latent risk Z_t with crossing threshold
+- Panel C: XGBoost probability P_t with 0.5 threshold
+Vertical lines indicate first threshold crossings.
 
 WHY IT MATTERS:
-Case studies illustrate HOW the models detect outbreaks over time.
-Bayesian Z_t may rise gradually before cases spike (early warning),
-while XGBoost P_t may respond more abruptly to feature changes.
-This visualization would demonstrate the lead-time advantage visually.
+Case studies illustrate HOW the models detect outbreaks. Bayesian Z_t may rise gradually before cases spike, while XGBoost P_t may respond more abruptly.
 
-WHY IT IS NOT POPULATED:
-- Current pipeline does not store per-district, per-week predictions
-- Predictions are computed and evaluated in-memory during CV
-- Implementation would require modifying 06_analyze_lead_time.py to
-  save prediction trajectories for selected districts
-
-FUTURE IMPLEMENTATION:
-See experiments/08_case_study_plots.py (to be created) for implementation.
-Candidate districts for case study: Tumkur (Karnataka) - has outbreak
-episodes in 2017, 2019, and 2021 folds with varying lead times.
+CAVEATS:
+Placeholder - requires per-district prediction storage. See experiments/08_case_study_plots.py for implementation.

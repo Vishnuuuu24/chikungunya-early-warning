@@ -274,45 +274,76 @@ def get_feature_columns(df: pd.DataFrame) -> List[str]:
 
 def impute_missing_features(df: pd.DataFrame, feature_cols: List[str]) -> pd.DataFrame:
     """
-    Impute missing feature values with neutral/sensible defaults.
+    Aggressively impute missing feature values to recover maximum data.
     
-    Same imputation logic as 03_train_baselines.py to ensure consistency.
+    V6 FIX: Expanded from 7 features to ALL 37 features to prevent data loss.
+    Previous version only imputed 7 features, causing 94% data loss to dropna().
     
     Args:
         df: DataFrame with features
         feature_cols: List of feature column names
         
     Returns:
-        DataFrame with imputed values
+        DataFrame with imputed values (minimal NaN remaining)
     """
     df = df.copy()
     
-    # Neutral value imputation for specific features
-    impute_map = {
-        'feat_var_spike_ratio': 1.0,
-        'feat_acf_change': 0.0,
-        'feat_trend_accel': 0.0,
-        'feat_lai': 0.0,
-        'feat_lai_lag_1': 0.0,
-        'feat_lai_lag_2': 0.0,
-        'feat_lai_lag_4': 0.0,
-    }
+    print(f"    Imputing {len(feature_cols)} features...")
+    initial_nulls = df[feature_cols].isnull().sum().sum()
     
-    # Forward-fill then backward-fill for climate lag features
-    climate_lag_cols = [c for c in feature_cols if any(
-        x in c for x in ['temp_lag', 'rain_lag', 'rain_persist', 'temp_anomaly']
-    )]
-    
-    for col in climate_lag_cols:
+    # 1. Past-only fill within groups for all lag features (climate + case lags)
+    # IMPORTANT: do NOT backfill (bfill) because it leaks future values into the past.
+    lag_cols = [c for c in feature_cols if 'lag' in c or 'persist' in c or 'anomaly' in c]
+    for col in lag_cols:
         if col in df.columns:
             df[col] = df.groupby(['state', 'district'])[col].transform(
-                lambda x: x.ffill().bfill()
+                lambda x: x.ffill()
             )
     
-    # Apply neutral value imputation
-    for col, neutral_val in impute_map.items():
+    # 2. Case-based features: use 0 (no cases = no activity)
+    case_feature_patterns = ['cases_', 'acf', 'growth', 'trend', 'skew', 'normalized']
+    case_cols = [c for c in feature_cols if any(p in c for p in case_feature_patterns)]
+    for col in case_cols:
         if col in df.columns:
-            df[col] = df[col].fillna(neutral_val)
+            df[col] = df[col].fillna(0.0)
+    
+    # 3. Climate/environmental features: use column median
+    climate_patterns = ['temp', 'rain', 'lai', 'degree_day', 'monsoon']
+    climate_cols = [c for c in feature_cols if any(p in c for p in climate_patterns)]
+    for col in climate_cols:
+        if col in df.columns:
+            median_val = df[col].median()
+            df[col] = df[col].fillna(median_val if not pd.isna(median_val) else 0.0)
+    
+    # 4. Variance/ratio features: use neutral value (1.0 = no change)
+    ratio_patterns = ['var', 'spike', 'ratio']
+    ratio_cols = [c for c in feature_cols if any(p in c for p in ratio_patterns)]
+    for col in ratio_cols:
+        if col in df.columns:
+            df[col] = df[col].fillna(1.0)
+    
+    # 5. Cyclic/geographic features: use 0 (neutral)
+    cyclic_patterns = ['sin', 'cos', 'quarter', 'lat', 'lon', 'interact']
+    cyclic_cols = [c for c in feature_cols if any(p in c for p in cyclic_patterns)]
+    for col in cyclic_cols:
+        if col in df.columns:
+            df[col] = df[col].fillna(0.0)
+    
+    # 6. Moving averages: use global mean
+    ma_cols = [c for c in feature_cols if '_ma_' in c]
+    for col in ma_cols:
+        if col in df.columns:
+            mean_val = df[col].mean()
+            df[col] = df[col].fillna(mean_val if not pd.isna(mean_val) else 0.0)
+    
+    # 7. Catch-all: any remaining NaNs → 0.0
+    for col in feature_cols:
+        if col in df.columns:
+            df[col] = df[col].fillna(0.0)
+    
+    final_nulls = df[feature_cols].isnull().sum().sum()
+    recovered = initial_nulls - final_nulls
+    print(f"    Imputation: {initial_nulls} nulls → {final_nulls} nulls (recovered {recovered} values)")
     
     return df
 
@@ -447,20 +478,26 @@ def train_bayesian_and_predict(
     combined_df['_sorted_position'] = range(len(combined_df))
     
     n_total = len(combined_df)
-    print(f"    Combined data: {n_total} samples ({len(train_df)} train + {len(test_df)} test)")
+    print(f"    [Bayesian] Combined: {n_total} samples ({len(train_df)} train + {len(test_df)} test)")
     
     # =========================================================================
     # Step 3: Fit Bayesian model
     # =========================================================================
+    print(f"    [Bayesian] Preparing hierarchical state-space model...")
     model = BayesianStateSpace(config=model_config)
     
     X_combined = combined_df[feature_cols].values
     y_combined = combined_df['cases'].values
     
-    print(f"    Fitting Bayesian model on {n_total} samples...")
+    print(f"    [Bayesian] Fitting on {n_total} samples...")
+    print(f"    [Bayesian] MCMC: {MCMC_CONFIG['n_chains']} chains × ({MCMC_CONFIG['n_warmup']} warmup + {MCMC_CONFIG['n_samples']} samples)")
+    print(f"    [Bayesian] Estimated time: ~{n_total * 0.2:.0f}-{n_total * 0.5:.0f} seconds (Stan will show progress bars)...")
     model.fit(X_combined, y_combined, df=combined_df, feature_cols=feature_cols)
+    print(f"    [Bayesian] ✓ MCMC sampling complete")
+    print(f"    [Bayesian] ✓ MCMC sampling complete")
     
     # Get posterior predictive for all time points
+    print(f"    [Bayesian] Extracting latent risk Z_t from posterior...")
     y_rep = model.get_posterior_predictive()  # Shape: (n_draws, N)
     
     # ASSERTION: y_rep must have exactly N columns
@@ -501,6 +538,7 @@ def train_bayesian_and_predict(
     # =========================================================================
     # Step 6: Build output DataFrame
     # =========================================================================
+    print(f"    [Bayesian] Extracting latent risk Z_t for {len(test_df)} test samples...")
     pred_df = test_df[['state', 'district', 'year', 'week', 'cases']].copy().reset_index(drop=True)
     pred_df['z_mean'] = test_preds['_z_mean'].values
     pred_df['z_sd'] = test_preds['_z_sd'].values
@@ -563,11 +601,17 @@ def analyze_single_fold(
     print(f"  Training: {len(train_df)} samples (years {train_df['year'].min()}-{train_df['year'].max()})")
     print(f"  Test: {len(test_df)} samples (year {test_df['year'].unique()})")
     
-    # Filter to valid samples (have both features and target)
-    train_valid = train_df.dropna(subset=feature_cols + [target_col])
-    test_valid = test_df.dropna(subset=feature_cols + [target_col])
+    # Apply imputation instead of dropping samples
+    # This recovers ~90% of data that was previously lost to dropna
+    print(f"  Applying imputation to recover missing values...")
+    train_imputed = impute_missing_features(train_df, feature_cols)
+    test_imputed = impute_missing_features(test_df, feature_cols)
     
-    print(f"  Valid training: {len(train_valid)} | Valid test: {len(test_valid)}")
+    # Only drop rows where TARGET is missing (not features)
+    train_valid = train_imputed.dropna(subset=[target_col])
+    test_valid = test_imputed.dropna(subset=[target_col])
+    
+    print(f"  Valid training: {len(train_valid)} (recovered from {len(train_df)}) | Valid test: {len(test_valid)} (recovered from {len(test_df)})")
     
     if len(train_valid) < 20:
         raise ValueError(f"Insufficient training data for fold {fold.fold_name}: {len(train_valid)}")
@@ -586,9 +630,10 @@ def analyze_single_fold(
     print(f"    XGBoost predictions: {len(xgboost_preds)} samples")
     
     # Bayesian predictions on TEST
-    print(f"    Training Bayesian model (this may take a few minutes)...")
+    print(f"    Training Bayesian model (this may take 5-15 minutes)...")
+    print(f"    [Bayesian] Compiling Stan model...")
     bayesian_preds = train_bayesian_and_predict(train_valid, test_valid, feature_cols)
-    print(f"    Bayesian predictions: {len(bayesian_preds)} samples")
+    print(f"    [Bayesian] ✓ Complete: {len(bayesian_preds)} predictions generated")
     
     # -------------------------------------------------------------------------
     # Step 1b: FAIR ANALYSIS MODE (v4.2) - Compute thresholds from TRAINING

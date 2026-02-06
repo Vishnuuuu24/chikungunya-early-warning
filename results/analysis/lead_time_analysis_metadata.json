@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-03T14:47:46.362081",
+  "timestamp": "2026-02-06T00:57:26.894702",
   "phase": "Phase 7 - Workstream A",
   "version": "v4",
   "config": {
@@ -36,14 +36,14 @@
     {
       "fold": "fold_2019",
       "test_year": 2019,
-      "n_train": 50,
-      "n_test": 18,
+      "n_train": 54,
+      "n_test": 21,
       "n_episodes": 1
     },
     {
       "fold": "fold_2021",
       "test_year": 2021,
-      "n_train": 78,
+      "n_train": 85,
       "n_test": 14,
       "n_episodes": 2
     }

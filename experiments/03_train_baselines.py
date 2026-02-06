@@ -28,7 +28,7 @@ import pandas as pd
 import numpy as np
 
 from src.config import load_config, get_project_root
-from src.features.engineering import get_feature_columns
+from src.features.feature_sets import select_feature_columns
 from src.evaluation.cv import create_rolling_origin_splits, prepare_train_test
 from src.evaluation.metrics import compute_all_metrics, print_metrics
 
@@ -91,6 +91,13 @@ def main():
         default="config/config_default.yaml",
         help="Path to config file"
     )
+    parser.add_argument(
+        "--feature-set",
+        type=str,
+        default="full",
+        choices=["full", "core"],
+        help="Which feature set to use: full (all feat_*) or core (sparse-robust subset)"
+    )
     args = parser.parse_args()
     
     # Load config
@@ -109,9 +116,10 @@ def main():
     print(f"  → {len(df)} rows, {len(df.columns)} columns")
     
     # Get feature columns
-    feature_cols = get_feature_columns(df)
+    feature_cols = select_feature_columns(df.columns, feature_set=args.feature_set)
     target_col = 'label_outbreak'
     
+    print(f"  → Feature set: {args.feature_set}")
     print(f"  → {len(feature_cols)} features")
     print(f"  → Target: {target_col}")
     
@@ -130,13 +138,14 @@ def main():
         'feat_lai_lag_4': 0.0,
     }
     
-    # Forward-fill then impute remaining for climate lag features
+    # Past-only imputation for climate lag features.
+    # IMPORTANT: do NOT backfill (bfill) because it leaks future values into the past.
     climate_lag_cols = [c for c in feature_cols if any(x in c for x in ['temp_lag', 'rain_lag', 'rain_persist', 'temp_anomaly'])]
     for col in climate_lag_cols:
         if col in df.columns:
-            # Group-wise forward fill then backward fill
+            # Group-wise forward fill (past-only)
             df[col] = df.groupby(['state', 'district'])[col].transform(
-                lambda x: x.ffill().bfill()
+                lambda x: x.ffill()
             )
     
     # Apply neutral value imputation
@@ -147,9 +156,13 @@ def main():
                 df[col] = df[col].fillna(neutral_val)
                 print(f"  → Imputed {n_imputed} missing {col} with {neutral_val}")
     
-    # Filter to valid samples (label + features required)
-    valid_df = df.dropna(subset=feature_cols + [target_col])
-    print(f"  → {len(valid_df)} valid samples")
+    # Filter to valid samples.
+    # IMPORTANT: Do not drop rows due to missing engineered features.
+    # Many mechanistic/EWS features are undefined early in a district history
+    # (rolling windows / long baselines). The baseline models handle NaNs via
+    # neutral/forward-fill imputation above and `np.nan_to_num` inside each model.
+    valid_df = df.dropna(subset=[target_col])
+    print(f"  → {len(valid_df)} labeled samples")
     
     # Create CV splits
     test_years = cfg['cv']['test_years']
@@ -183,7 +196,7 @@ def main():
             test_df = valid_df.iloc[fold.test_idx]
             
             X_train, y_train, X_test, y_test = prepare_train_test(
-                train_df, test_df, feature_cols, target_col
+                train_df, test_df, feature_cols, target_col, drop_na=False
             )
             
             # Skip if insufficient data

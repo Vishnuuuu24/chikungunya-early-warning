@@ -1,0 +1,11 @@
+FIGURE: Calibration Curve (Reliability Diagram)
+============================================================
+
+WHAT IS SHOWN:
+Reliability diagram for XGBoost probabilities binned into deciles. Each point shows mean predicted probability vs observed outbreak rate in that bin.
+
+WHY IT MATTERS:
+If points lie below the diagonal, the model is overconfident; above indicates underconfidence. Calibration matters for decision thresholds and alert credibility.
+
+CAVEATS:
+Computed from stored predictions: /Volumes/My Drive/Priyodip/college notes and stuff/sem6/research work/implemnetation/chikungunya-early-warning/versions/Priyo-Version-Hist/v6/results/predictions/baseline_cv_predictions_xgboost.parquet. Bayesian z_mean is a risk signal, not a probability.
