@@ -37,6 +37,7 @@ sys.path.insert(0, str(project_root))
 from src.config import load_config, get_project_root
 from src.evaluation.cv import create_rolling_origin_splits, CVFold
 from src.evaluation.metrics import compute_all_metrics, print_metrics
+from src.features.feature_sets import select_feature_columns
 
 # NOW add v3 code to path for Bayesian model imports
 v3_code_path = project_root / "versions" / "Vishnu-Version-Hist" / "v3" / "code"
@@ -65,7 +66,7 @@ V1_1_XGBOOST_AUC = 0.759
 
 def get_feature_columns(df: pd.DataFrame) -> List[str]:
     """Get all feature column names."""
-    return [c for c in df.columns if c.startswith('feat_')]
+    return select_feature_columns(df.columns, feature_set="core")
 
 
 def get_stan_model_path() -> Path:

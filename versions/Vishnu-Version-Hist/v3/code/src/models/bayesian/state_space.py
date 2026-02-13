@@ -55,6 +55,10 @@ class BayesianStateSpace(BaseModel):
         self.n_chains = config.get('n_chains', 4) if config else 4
         self.adapt_delta = config.get('adapt_delta', 0.95) if config else 0.95  # NEW
         self.seed = config.get('seed', 42) if config else 42
+
+        # Config-driven outbreak percentile for converting posterior predictive
+        # counts into outbreak probabilities.
+        self.outbreak_percentile = config.get('outbreak_percentile') if config else None
         
         # Stan model path
         self.stan_file = config.get('stan_file', None) if config else None
@@ -100,8 +104,13 @@ class BayesianStateSpace(BaseModel):
         Returns:
             Dictionary formatted for Stan
         """
-        # Sort by district and time
-        df = df.sort_values(['state', 'district', 'year', 'week']).reset_index(drop=True)
+        # Sort by district and time.
+        # IMPORTANT: If the caller added a unique row id to break ties for
+        # duplicate (state, district, year, week), include it in the sort.
+        sort_cols = ['state', 'district', 'year', 'week']
+        if '_unique_row_id' in df.columns:
+            sort_cols.append('_unique_row_id')
+        df = df.sort_values(sort_cols).reset_index(drop=True)
         
         # Create district IDs
         df['district_id'] = pd.factorize(df['state'] + '_' + df['district'])[0] + 1
@@ -213,14 +222,45 @@ class BayesianStateSpace(BaseModel):
         # Get posterior predictive samples
         y_rep = self.fit_.stan_variable('y_rep')  # Shape: (n_samples * n_chains, N)
         
-        # Compute probability of exceeding 75th percentile of training data
+        # Compute probability of exceeding config-driven percentile of training data.
+        # Use all training cases (including zeros) and enforce minimum threshold 1.0
+        # to match the outbreak-threshold logic used in lead-time evaluation.
         y_train = self.data_['y']
-        threshold = np.percentile(y_train[y_train > 0], 75) if np.any(y_train > 0) else 1
+        percentile = self.outbreak_percentile if self.outbreak_percentile is not None else 75
+        threshold = float(np.percentile(y_train, percentile)) if len(y_train) else 1.0
+        threshold = max(threshold, 1.0)
         
         # P(outbreak) = fraction of posterior samples exceeding threshold
         prob_outbreak = (y_rep > threshold).mean(axis=0)
         
         return prob_outbreak
+
+    def get_latent_risk_samples_per_observation(self) -> np.ndarray:
+        """Return posterior samples of latent risk aligned to each observation row.
+
+        The Stan model defines a latent state Z[d, t]. Each observation i maps to
+        (district[i], time[i]) provided in the Stan data.
+
+        Returns:
+            Array of shape (n_draws, N) with Z for each observation.
+        """
+        if not self.is_fitted:
+            raise ValueError("Model not fitted.")
+        if self.data_ is None:
+            raise ValueError("Stan data not prepared.")
+
+        Z = self.get_latent_states()  # (n_draws, D, T_max)
+        district_idx = np.asarray(self.data_['district'], dtype=int) - 1
+        time_idx = np.asarray(self.data_['time'], dtype=int) - 1
+        if district_idx.ndim != 1 or time_idx.ndim != 1:
+            raise ValueError("Invalid district/time index arrays in Stan data")
+
+        return Z[:, district_idx, time_idx]
+
+    def get_latent_risk_summary_per_observation(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Return (mean, sd) of latent risk Z for each observation row."""
+        z_samples = self.get_latent_risk_samples_per_observation()
+        return z_samples.mean(axis=0), z_samples.std(axis=0)
     
     def get_diagnostics(self) -> Dict[str, Any]:
         """

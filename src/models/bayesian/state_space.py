@@ -85,8 +85,12 @@ class BayesianStateSpace(BaseModel):
         Returns:
             Dictionary formatted for Stan
         """
-        # Sort by district and time
-        df = df.sort_values(['state', 'district', 'year', 'week']).reset_index(drop=True)
+        # Sort by district and time.
+        # If a unique row id is present, include it as a deterministic tie-breaker.
+        sort_cols = ['state', 'district', 'year', 'week']
+        if '_unique_row_id' in df.columns:
+            sort_cols.append('_unique_row_id')
+        df = df.sort_values(sort_cols).reset_index(drop=True)
         
         # Create district IDs
         df['district_id'] = pd.factorize(df['state'] + '_' + df['district'])[0] + 1
@@ -260,6 +264,28 @@ class BayesianStateSpace(BaseModel):
             raise ValueError("Model not fitted.")
         
         return self.fit_.stan_variable('Z')
+
+    def get_latent_risk_summary_per_observation(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Return per-observation latent risk summary (mean, sd) aligned to Stan data rows.
+
+        Uses latent state samples Z[d, t] and maps them to each observation n via
+        the (district[n], time[n]) indices in the Stan data.
+
+        Returns:
+            (z_mean, z_sd): arrays of shape (N,)
+        """
+        if not self.is_fitted:
+            raise ValueError("Model not fitted.")
+        if self.data_ is None:
+            raise ValueError("Stan data not prepared; fit() must be called first.")
+
+        Z = self.fit_.stan_variable('Z')  # (n_draws, D, T_max)
+        district = np.asarray(self.data_['district'], dtype=int) - 1
+        time = np.asarray(self.data_['time'], dtype=int) - 1
+
+        # Fancy indexing returns (n_draws, N)
+        z_obs = Z[:, district, time]
+        return z_obs.mean(axis=0), z_obs.std(axis=0)
     
     def get_posterior_predictive(self) -> np.ndarray:
         """

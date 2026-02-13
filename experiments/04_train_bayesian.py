@@ -26,11 +26,12 @@ sys.path.insert(0, str(project_root))
 
 from src.config import load_config, get_project_root
 from src.evaluation.cv import create_rolling_origin_splits
+from src.features.feature_sets import select_feature_columns
 
 
 def get_feature_columns(df: pd.DataFrame) -> list:
     """Get all feature column names."""
-    return [c for c in df.columns if c.startswith('feat_')]
+    return select_feature_columns(df.columns, feature_set="core")
 
 
 def main():

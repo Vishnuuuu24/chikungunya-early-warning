@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-06T22:47:48.224384",
+  "timestamp": "2026-02-08T00:20:02.034190",
   "model": "bayesian_state_space",
   "model_version": "v3",
   "phase": "Phase 5: Rolling-Origin CV Evaluation",
@@ -21,8 +21,8 @@
     "sensitivity_std": 0.10647942749998998,
     "specificity_mean": 0.9761904761904763,
     "specificity_std": 0.05323971374999501,
-    "brier_mean": 0.24971581757073946,
-    "brier_std": 0.15399741501435601
+    "brier_mean": 0.2528518912672975,
+    "brier_std": 0.15523178312525093
   },
   "fold_results": [
     {
@@ -38,51 +38,51 @@
         "f1": 0.0,
         "sensitivity": 0.0,
         "specificity": 1.0,
-        "brier": 0.5312951022727274,
+        "brier": 0.5365871875,
         "precision": 0.0,
         "false_alarm_rate": 0.0
       },
       "diagnostics": {
         "n_divergences": 1,
-        "max_rhat": 1.02237,
-        "min_ess_bulk": 184.598,
-        "min_ess_tail": 421.73,
+        "max_rhat": 1.02216,
+        "min_ess_bulk": 210.148,
+        "min_ess_tail": 520.863,
         "parameter_summary": {
           "mu_alpha": {
-            "mean": 3.61211,
-            "std": 0.0853106,
-            "rhat": 1.00383,
-            "ess_bulk": 1173.15
+            "mean": 3.61254,
+            "std": 0.0831864,
+            "rhat": 1.00643,
+            "ess_bulk": 1019.28
           },
           "sigma_alpha": {
-            "mean": 0.686599,
-            "std": 0.0970003,
-            "rhat": 1.01447,
-            "ess_bulk": 423.463
+            "mean": 0.686875,
+            "std": 0.0959648,
+            "rhat": 1.01094,
+            "ess_bulk": 380.962
           },
           "rho": {
-            "mean": 0.537798,
-            "std": 0.0893369,
-            "rhat": 1.00195,
-            "ess_bulk": 442.439
+            "mean": 0.538166,
+            "std": 0.0904796,
+            "rhat": 1.00743,
+            "ess_bulk": 660.655
           },
           "beta_temp": {
-            "mean": 0.0139364,
-            "std": 0.0241661,
-            "rhat": 1.00008,
-            "ess_bulk": 2702.49
+            "mean": 0.0142304,
+            "std": 0.0238569,
+            "rhat": 1.001,
+            "ess_bulk": 3072.92
           },
           "sigma": {
-            "mean": 0.477936,
-            "std": 0.0927688,
-            "rhat": 1.02237,
-            "ess_bulk": 184.598
+            "mean": 0.478077,
+            "std": 0.0920094,
+            "rhat": 1.02216,
+            "ess_bulk": 210.148
           },
           "phi": {
-            "mean": 2.80198,
-            "std": 0.467026,
-            "rhat": 1.01543,
-            "ess_bulk": 253.542
+            "mean": 2.80457,
+            "std": 0.431318,
+            "rhat": 1.01625,
+            "ess_bulk": 286.115
           }
         }
       }
@@ -100,51 +100,51 @@
         "f1": 0.0,
         "sensitivity": 0.0,
         "specificity": 1.0,
-        "brier": 0.22805262847222219,
+        "brier": 0.2371173125,
         "precision": 0.0,
         "false_alarm_rate": 0.0
       },
       "diagnostics": {
         "n_divergences": 1,
-        "max_rhat": 1.01474,
-        "min_ess_bulk": 259.635,
-        "min_ess_tail": 630.801,
+        "max_rhat": 1.01452,
+        "min_ess_bulk": 228.125,
+        "min_ess_tail": 515.968,
         "parameter_summary": {
           "mu_alpha": {
-            "mean": 3.57602,
-            "std": 0.0753497,
-            "rhat": 1.00278,
-            "ess_bulk": 850.091
+            "mean": 3.57278,
+            "std": 0.0746391,
+            "rhat": 1.00134,
+            "ess_bulk": 753.276
           },
           "sigma_alpha": {
-            "mean": 0.612331,
-            "std": 0.086658,
-            "rhat": 1.01078,
-            "ess_bulk": 508.783
+            "mean": 0.609156,
+            "std": 0.089162,
+            "rhat": 1.00404,
+            "ess_bulk": 433.556
           },
           "rho": {
-            "mean": 0.505651,
-            "std": 0.0815578,
-            "rhat": 1.00478,
-            "ess_bulk": 476.457
+            "mean": 0.501634,
+            "std": 0.0834002,
+            "rhat": 1.00757,
+            "ess_bulk": 506.986
           },
           "beta_temp": {
-            "mean": 0.0311135,
-            "std": 0.0215001,
-            "rhat": 1.00087,
-            "ess_bulk": 2256.17
+            "mean": 0.0307592,
+            "std": 0.0214518,
+            "rhat": 0.999928,
+            "ess_bulk": 2115.42
           },
           "sigma": {
-            "mean": 0.522867,
-            "std": 0.0727205,
-            "rhat": 1.01474,
-            "ess_bulk": 259.635
+            "mean": 0.530607,
+            "std": 0.0777294,
+            "rhat": 1.01414,
+            "ess_bulk": 229.86
           },
           "phi": {
-            "mean": 3.14143,
-            "std": 0.47824,
-            "rhat": 1.00948,
-            "ess_bulk": 353.53
+            "mean": 3.19597,
+            "std": 0.527839,
+            "rhat": 1.01452,
+            "ess_bulk": 228.125
           }
         }
       }
@@ -162,51 +162,51 @@
         "f1": 0.36363636363636365,
         "sensitivity": 0.2857142857142857,
         "specificity": 0.8571428571428571,
-        "brier": 0.26124708333333335,
+        "brier": 0.2604329047619048,
         "precision": 0.5,
         "false_alarm_rate": 0.5
       },
       "diagnostics": {
         "n_divergences": 1,
-        "max_rhat": 1.01262,
-        "min_ess_bulk": 242.036,
-        "min_ess_tail": 513.364,
+        "max_rhat": 1.02756,
+        "min_ess_bulk": 189.738,
+        "min_ess_tail": 489.433,
         "parameter_summary": {
           "mu_alpha": {
-            "mean": 3.5546,
-            "std": 0.0684863,
-            "rhat": 1.00159,
-            "ess_bulk": 1044.31
+            "mean": 3.55394,
+            "std": 0.0708745,
+            "rhat": 1.00559,
+            "ess_bulk": 1162.49
           },
           "sigma_alpha": {
-            "mean": 0.584435,
-            "std": 0.079128,
-            "rhat": 1.00703,
-            "ess_bulk": 619.989
+            "mean": 0.591058,
+            "std": 0.0806609,
+            "rhat": 1.01359,
+            "ess_bulk": 351.342
           },
           "rho": {
-            "mean": 0.476334,
-            "std": 0.0795372,
-            "rhat": 1.00379,
-            "ess_bulk": 409.485
+            "mean": 0.485405,
+            "std": 0.082393,
+            "rhat": 1.01228,
+            "ess_bulk": 513.976
           },
           "beta_temp": {
-            "mean": 0.0245002,
-            "std": 0.0187469,
-            "rhat": 1.00013,
-            "ess_bulk": 2881.32
+            "mean": 0.0236925,
+            "std": 0.0190644,
+            "rhat": 1.0029,
+            "ess_bulk": 2208.73
           },
           "sigma": {
-            "mean": 0.524049,
-            "std": 0.0668819,
-            "rhat": 1.01262,
-            "ess_bulk": 242.036
+            "mean": 0.513786,
+            "std": 0.0724657,
+            "rhat": 1.02756,
+            "ess_bulk": 189.738
           },
           "phi": {
-            "mean": 3.50363,
-            "std": 0.550698,
-            "rhat": 1.00856,
-            "ess_bulk": 318.341
+            "mean": 3.44678,
+            "std": 0.570001,
+            "rhat": 1.01943,
+            "ess_bulk": 235.717
           }
         }
       }
@@ -224,51 +224,51 @@
         "f1": 0.0,
         "sensitivity": 0.0,
         "specificity": 1.0,
-        "brier": 0.20091281249999998,
+        "brier": 0.20934654861111113,
         "precision": 0.0,
         "false_alarm_rate": 0.0
       },
       "diagnostics": {
         "n_divergences": 1,
-        "max_rhat": 1.01171,
-        "min_ess_bulk": 288.647,
-        "min_ess_tail": 781.743,
+        "max_rhat": 1.01556,
+        "min_ess_bulk": 333.744,
+        "min_ess_tail": 889.067,
         "parameter_summary": {
           "mu_alpha": {
-            "mean": 3.53152,
-            "std": 0.0671662,
-            "rhat": 1.00403,
-            "ess_bulk": 1288.69
+            "mean": 3.53227,
+            "std": 0.066018,
+            "rhat": 1.00429,
+            "ess_bulk": 1552.75
           },
           "sigma_alpha": {
-            "mean": 0.603643,
-            "std": 0.0687226,
-            "rhat": 1.00277,
-            "ess_bulk": 695.317
+            "mean": 0.596709,
+            "std": 0.0712028,
+            "rhat": 1.00191,
+            "ess_bulk": 865.891
           },
           "rho": {
-            "mean": 0.4737,
-            "std": 0.0805874,
-            "rhat": 1.00539,
-            "ess_bulk": 520.537
+            "mean": 0.467564,
+            "std": 0.080503,
+            "rhat": 1.00566,
+            "ess_bulk": 655.534
           },
           "beta_temp": {
-            "mean": 0.0150064,
-            "std": 0.0183184,
-            "rhat": 1.00083,
-            "ess_bulk": 3035.28
+            "mean": 0.0154498,
+            "std": 0.0181045,
+            "rhat": 1.00182,
+            "ess_bulk": 4448.34
           },
           "sigma": {
-            "mean": 0.492809,
-            "std": 0.0611452,
-            "rhat": 1.00961,
-            "ess_bulk": 288.647
+            "mean": 0.501606,
+            "std": 0.0625274,
+            "rhat": 1.01556,
+            "ess_bulk": 333.744
           },
           "phi": {
-            "mean": 3.51828,
-            "std": 0.500613,
-            "rhat": 1.00996,
-            "ess_bulk": 298.616
+            "mean": 3.57749,
+            "std": 0.52862,
+            "rhat": 1.01304,
+            "ess_bulk": 371.996
           }
         }
       }
@@ -286,51 +286,51 @@
         "f1": 0.0,
         "sensitivity": 0.0,
         "specificity": 1.0,
-        "brier": 0.27112471634615387,
+        "brier": 0.26900339423076913,
         "precision": 0.0,
         "false_alarm_rate": 0.0
       },
       "diagnostics": {
         "n_divergences": 1,
-        "max_rhat": 1.01698,
-        "min_ess_bulk": 287.35,
-        "min_ess_tail": 767.278,
+        "max_rhat": 1.04417,
+        "min_ess_bulk": 152.036,
+        "min_ess_tail": 384.053,
         "parameter_summary": {
           "mu_alpha": {
-            "mean": 3.51405,
-            "std": 0.0651144,
-            "rhat": 1.00208,
-            "ess_bulk": 1781.23
+            "mean": 3.51438,
+            "std": 0.0694393,
+            "rhat": 1.00878,
+            "ess_bulk": 644.485
           },
           "sigma_alpha": {
-            "mean": 0.611321,
-            "std": 0.0714944,
-            "rhat": 1.00452,
-            "ess_bulk": 650.749
+            "mean": 0.60268,
+            "std": 0.0720078,
+            "rhat": 1.01251,
+            "ess_bulk": 513.945
           },
           "rho": {
-            "mean": 0.476452,
-            "std": 0.0772268,
-            "rhat": 1.01454,
-            "ess_bulk": 656.071
+            "mean": 0.469393,
+            "std": 0.0782294,
+            "rhat": 1.01216,
+            "ess_bulk": 365.013
           },
           "beta_temp": {
-            "mean": 0.0210392,
-            "std": 0.0180958,
-            "rhat": 1.00061,
-            "ess_bulk": 3994.66
+            "mean": 0.0204847,
+            "std": 0.0179962,
+            "rhat": 1.00036,
+            "ess_bulk": 2443.73
           },
           "sigma": {
-            "mean": 0.494322,
-            "std": 0.0623866,
-            "rhat": 1.01698,
-            "ess_bulk": 287.35
+            "mean": 0.504756,
+            "std": 0.0638058,
+            "rhat": 1.04376,
+            "ess_bulk": 169.238
           },
           "phi": {
-            "mean": 3.53136,
-            "std": 0.496739,
-            "rhat": 1.0109,
-            "ess_bulk": 347.284
+            "mean": 3.60762,
+            "std": 0.538153,
+            "rhat": 1.04417,
+            "ess_bulk": 152.036
           }
         }
       }
@@ -348,51 +348,51 @@
         "f1": 0.0,
         "sensitivity": 0.0,
         "specificity": 1.0,
-        "brier": 0.005662562500000003,
+        "brier": 0.004624000000000005,
         "precision": 0.0,
         "false_alarm_rate": 0.0
       },
       "diagnostics": {
         "n_divergences": 1,
-        "max_rhat": 1.01265,
-        "min_ess_bulk": 372.475,
-        "min_ess_tail": 945.818,
+        "max_rhat": 1.01119,
+        "min_ess_bulk": 290.833,
+        "min_ess_tail": 694.163,
         "parameter_summary": {
           "mu_alpha": {
-            "mean": 3.47806,
-            "std": 0.065813,
-            "rhat": 1.00383,
-            "ess_bulk": 1022.13
+            "mean": 3.47736,
+            "std": 0.0664326,
+            "rhat": 1.0025,
+            "ess_bulk": 992.852
           },
           "sigma_alpha": {
-            "mean": 0.599421,
-            "std": 0.0687065,
-            "rhat": 1.0018,
-            "ess_bulk": 979.2
+            "mean": 0.594733,
+            "std": 0.0667623,
+            "rhat": 1.00489,
+            "ess_bulk": 686.802
           },
           "rho": {
-            "mean": 0.467765,
-            "std": 0.0735029,
-            "rhat": 1.00051,
-            "ess_bulk": 748.756
+            "mean": 0.467027,
+            "std": 0.0746385,
+            "rhat": 1.00433,
+            "ess_bulk": 664.914
           },
           "beta_temp": {
-            "mean": 0.0334981,
-            "std": 0.0178818,
-            "rhat": 1.0009,
-            "ess_bulk": 4287.88
+            "mean": 0.0338541,
+            "std": 0.0174345,
+            "rhat": 1.00011,
+            "ess_bulk": 2817.99
           },
           "sigma": {
-            "mean": 0.515782,
-            "std": 0.0548629,
-            "rhat": 1.00287,
-            "ess_bulk": 372.475
+            "mean": 0.52096,
+            "std": 0.057705,
+            "rhat": 1.01113,
+            "ess_bulk": 290.833
           },
           "phi": {
-            "mean": 3.57773,
-            "std": 0.479847,
-            "rhat": 1.0011,
-            "ess_bulk": 394.75
+            "mean": 3.62449,
+            "std": 0.517897,
+            "rhat": 1.00501,
+            "ess_bulk": 333.636
           }
         }
       }

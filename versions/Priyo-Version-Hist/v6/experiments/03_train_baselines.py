@@ -252,7 +252,10 @@ def main():
         metrics_dir = v6_root / cfg.get('output', {}).get('metrics_dir', 'results/metrics')
         metrics_dir.mkdir(parents=True, exist_ok=True)
 
-        prob_threshold = float(cfg.get('evaluation', {}).get('probability_threshold', 0.5))
+        prob_threshold = cfg.get('evaluation', {}).get('probability_threshold')
+        if prob_threshold is None:
+            raise ValueError("Missing evaluation.probability_threshold in config.")
+        prob_threshold = float(prob_threshold)
 
         for model_name in models.keys():
             print(f"\n{'='*40}")

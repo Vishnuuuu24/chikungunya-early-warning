@@ -128,12 +128,12 @@ def extract_bayesian_metrics(bayesian_results: Dict[str, Any]) -> Dict[str, Any]
             }
         },
         'interpretation': {
-            'auc': 'Moderate discrimination (0.515)',
-            'recall': 'Very low sensitivity (4.8%) - conservative model',
-            'specificity': 'Very high specificity (97.6%) - few false alarms',
-            'f1': 'Low F1 due to class imbalance',
-            'brier': 'Good calibration (0.25)',
-            'note': 'Low AUC expected for uncertainty-aware risk estimator. Not optimized for binary classification.'
+            'auc': 'Discrimination summary is in metrics.auc (mean/std).',
+            'recall': 'Sensitivity summary is in metrics.recall (mean/std).',
+            'specificity': 'Specificity summary is in metrics.specificity (mean/std).',
+            'f1': 'F1 summary is in metrics.f1 (mean/std).',
+            'brier': 'Calibration summary is in metrics.brier (mean/std).',
+            'note': 'Avoid interpreting Bayesian performance on AUC alone; it is primarily a latent risk estimator.'
         }
     }
     
@@ -191,11 +191,11 @@ def extract_xgboost_metrics(baseline_results: Dict[str, Any]) -> Dict[str, Any]:
             }
         },
         'interpretation': {
-            'auc': 'Good discrimination (0.759) - best ML baseline',
-            'recall': 'Low sensitivity (16%) - many missed outbreaks',
-            'specificity': 'High specificity (95.7%) - few false alarms',
-            'f1': 'Moderate F1 (0.21)',
-            'note': 'Optimized for AUC, but misses many outbreaks (low recall)'
+            'auc': 'Discrimination summary is in metrics.auc (mean/std).',
+            'recall': 'Sensitivity summary is in metrics.recall (mean/std).',
+            'specificity': 'Specificity summary is in metrics.specificity (mean/std).',
+            'f1': 'F1 summary is in metrics.f1 (mean/std).',
+            'note': 'Optimized for discrimination metrics; recall may be low depending on thresholding.'
         }
     }
     
@@ -347,16 +347,23 @@ def create_comparison_table(
     if fusion:
         comparison['models']['fusion'] = fusion
     
-    # Key insights
+    def _auc_str(model_block: Dict[str, Any]) -> str:
+        try:
+            v = model_block.get('metrics', {}).get('auc', {}).get('mean', None)
+            return f"{float(v):.3f}" if v is not None else "N/A"
+        except Exception:
+            return "N/A"
+
+    # Key insights (computed from loaded metrics; no hard-coded AUCs)
     comparison['key_insights'] = {
         'track_a_ml': {
-            'champion': 'XGBoost (AUC=0.759)',
+            'champion': f"XGBoost (AUC={_auc_str(xgboost)})" if xgboost else 'XGBoost',
             'strength': 'Best binary classification performance',
-            'weakness': 'Low recall (16%) - misses many outbreaks',
+            'weakness': 'Low recall can miss outbreaks (threshold-dependent)',
             'use_case': 'When false alarms are very costly'
         },
         'track_b_bayesian': {
-            'champion': 'Bayesian State-Space (AUC=0.515)',
+            'champion': f"Bayesian State-Space (AUC={_auc_str(bayesian)})" if bayesian else 'Bayesian State-Space',
             'strength': 'Uncertainty quantification, early warning potential',
             'weakness': 'Low AUC when evaluated as binary classifier',
             'use_case': 'Decision-theoretic risk assessment, lead-time advantage',

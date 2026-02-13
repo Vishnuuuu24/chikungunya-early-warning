@@ -11,11 +11,9 @@ results/figures/phase7/
 │   ├── lead_time_distribution.png
 │   ├── differential_lead_histogram.png
 │   ├── per_fold_median_lead.png
-│   └── case_study_timeseries_placeholder.png
+│   └── case_study_timeseries.png
 ├── 03_calibration_uncertainty/   # Calibration and uncertainty quantification
-│   └── calibration_curves_placeholder.png
-├── 04_decision_usefulness/       # Decision support evaluation
-│   └── decision_state_timeline.png
+│   └── calibration_curves.png
 └── README.md                     # This file
 ```
 
@@ -30,10 +28,7 @@ results/figures/phase7/
 - `02_lead_time_analysis/per_fold_median_lead.png`: Fold-level variability
 
 ### Chapter: Results (Calibration & Uncertainty)
-- `03_calibration_uncertainty/calibration_curves_placeholder.png`: Reliability
-
-### Chapter: Discussion (Decision Usefulness)
-- `04_decision_usefulness/decision_state_timeline.png`: Operational states
+- `03_calibration_uncertainty/calibration_curves.png`: Reliability
 
 ## Figure Standards
 
@@ -46,11 +41,11 @@ All figures include:
 
 ## Data Sources
 
-- Lead-time results: `results/analysis/lead_time_*.csv`
+- Lead-time results: `results/analysis/lead_time_*_p*.csv`
 - Baseline metrics: `results/metrics/baseline_comparison.json`
 - Bayesian metrics: `results/metrics/bayesian_cv_results.json`
 
 ## Generated
 
-Date: 2026-02-06 11:04:37
+Date: 2026-02-08 11:50:51
 Version: v4.2 (Phase 7 Complete)

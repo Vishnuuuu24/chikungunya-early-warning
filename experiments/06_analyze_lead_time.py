@@ -389,7 +389,10 @@ def train_xgboost_and_predict(
     probs = model.predict_proba(X_test)
     
     # Create output DataFrame
-    pred_df = test_df[['state', 'district', 'year', 'week', 'cases']].copy()
+    base_cols = ['state', 'district', 'year', 'week', 'cases']
+    extra_cols = ['incidence_per_100k', '_row_id']
+    keep_cols = base_cols + [c for c in extra_cols if c in test_df.columns]
+    pred_df = test_df[keep_cols].copy()
     pred_df['prob'] = probs
     
     return pred_df
@@ -399,7 +402,7 @@ def train_bayesian_and_predict(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
     feature_cols: List[str]
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Train Bayesian state-space model and generate predictions for test data.
     
@@ -426,9 +429,12 @@ def train_bayesian_and_predict(
         test_df: Test DataFrame (NaN-filtered)
         feature_cols: Feature column names
         
-    Returns:
-        Test DataFrame with added 'z_mean' and 'z_sd' columns
-        Guaranteed: len(output) == len(test_df)
+        Returns:
+                (train_pred_df, test_pred_df) where each includes:
+                    - state, district, year, week, cases
+                    - _row_id (stable join key)
+                    - z_mean, z_sd
+                Guaranteed: lengths match the corresponding inputs.
     """
     from src.models.bayesian.state_space import BayesianStateSpace
     
@@ -448,7 +454,12 @@ def train_bayesian_and_predict(
     
     train_copy = train_df.copy()
     test_copy = test_df.copy()
-    
+
+    if '_row_id' not in train_copy.columns:
+        train_copy['_row_id'] = train_copy.index.astype(int)
+    if '_row_id' not in test_copy.columns:
+        test_copy['_row_id'] = test_copy.index.astype(int)
+
     # Assign globally unique row IDs
     train_copy['_unique_row_id'] = range(len(train_copy))
     test_copy['_unique_row_id'] = range(len(train_copy), len(train_copy) + len(test_copy))
@@ -496,21 +507,22 @@ def train_bayesian_and_predict(
     print(f"    [Bayesian] ✓ MCMC sampling complete")
     print(f"    [Bayesian] ✓ MCMC sampling complete")
     
-    # Get posterior predictive for all time points
+    # Extract latent risk Z_t aligned to each observation row.
     print(f"    [Bayesian] Extracting latent risk Z_t from posterior...")
-    y_rep = model.get_posterior_predictive()  # Shape: (n_draws, N)
-    
-    # ASSERTION: y_rep must have exactly N columns
-    if y_rep.shape[1] != n_total:
+    if not hasattr(model, 'get_latent_risk_summary_per_observation'):
         raise RuntimeError(
-            f"STATE-SPACE INDEXING ERROR: y_rep has {y_rep.shape[1]} columns "
-            f"but combined_df has {n_total} rows. "
-            f"This indicates a fundamental mismatch in the Stan model output."
+            "BayesianStateSpace is missing get_latent_risk_summary_per_observation(). "
+            "Update src/models/bayesian/state_space.py to expose latent-Z per-observation extraction."
         )
-    
-    # Compute summary statistics
-    z_mean = y_rep.mean(axis=0)
-    z_sd = y_rep.std(axis=0)
+    z_mean, z_sd = model.get_latent_risk_summary_per_observation()
+
+    # ASSERTION: z_mean must have exactly N entries
+    if len(z_mean) != n_total:
+        raise RuntimeError(
+            f"STATE-SPACE INDEXING ERROR: z_mean has {len(z_mean)} entries "
+            f"but combined_df has {n_total} rows. "
+            f"This indicates a mismatch in latent-state extraction."
+        )
     
     # =========================================================================
     # Step 4: Assign z_mean to the sorted DataFrame
@@ -536,28 +548,38 @@ def train_bayesian_and_predict(
     test_preds = test_preds.sort_values('_test_order').reset_index(drop=True)
     
     # =========================================================================
-    # Step 6: Build output DataFrame
+    # Step 6: Build output DataFrames (train + test)
     # =========================================================================
     print(f"    [Bayesian] Extracting latent risk Z_t for {len(test_df)} test samples...")
-    pred_df = test_df[['state', 'district', 'year', 'week', 'cases']].copy().reset_index(drop=True)
-    pred_df['z_mean'] = test_preds['_z_mean'].values
-    pred_df['z_sd'] = test_preds['_z_sd'].values
-    
-    # FINAL ASSERTION: Output length must match test_df exactly
-    if len(pred_df) != len(test_df):
+
+    base_cols = ['state', 'district', 'year', 'week', 'cases']
+    extra_cols = ['incidence_per_100k', '_row_id']
+    keep_cols_test = base_cols + [c for c in extra_cols if c in test_df.columns]
+    keep_cols_train = base_cols + [c for c in extra_cols if c in train_df.columns]
+
+    test_pred_df = test_df[keep_cols_test].copy().reset_index(drop=True)
+    test_pred_df['z_mean'] = test_preds['_z_mean'].values
+    test_pred_df['z_sd'] = test_preds['_z_sd'].values
+
+    train_preds = combined_df[~combined_df['_unique_row_id'].isin(test_row_ids)].copy()
+    train_preds = train_preds.sort_values('_unique_row_id').reset_index(drop=True)
+    train_pred_df = train_df[keep_cols_train].copy().reset_index(drop=True)
+    if len(train_pred_df) != len(train_preds):
         raise RuntimeError(
-            f"OUTPUT LENGTH ERROR: pred_df has {len(pred_df)} rows "
-            f"but test_df has {len(test_df)} rows."
+            f"TRAIN EXTRACTION ERROR: Found {len(train_preds)} train predictions "
+            f"but expected {len(train_pred_df)}."
         )
-    
+    train_pred_df['z_mean'] = train_preds['_z_mean'].values
+    train_pred_df['z_sd'] = train_preds['_z_sd'].values
+
     # Check for NaN
-    n_missing = pred_df['z_mean'].isna().sum()
+    n_missing = test_pred_df['z_mean'].isna().sum()
     if n_missing > 0:
         warnings.warn(f"  WARNING: {n_missing} test samples have NaN Bayesian prediction")
     
-    print(f"    Bayesian predictions: {len(pred_df)} samples")
-    
-    return pred_df
+    print(f"    Bayesian predictions: {len(test_pred_df)} test samples")
+
+    return train_pred_df, test_pred_df
 
 
 # =============================================================================
@@ -608,8 +630,12 @@ def analyze_single_fold(
     test_imputed = impute_missing_features(test_df, feature_cols)
     
     # Only drop rows where TARGET is missing (not features)
-    train_valid = train_imputed.dropna(subset=[target_col])
-    test_valid = test_imputed.dropna(subset=[target_col])
+    train_valid = train_imputed.dropna(subset=[target_col]).copy()
+    test_valid = test_imputed.dropna(subset=[target_col]).copy()
+
+    # Stable join key for per-row prediction tables
+    train_valid['_row_id'] = train_valid.index.astype(int)
+    test_valid['_row_id'] = test_valid.index.astype(int)
     
     print(f"  Valid training: {len(train_valid)} (recovered from {len(train_df)}) | Valid test: {len(test_valid)} (recovered from {len(test_df)})")
     
@@ -632,8 +658,8 @@ def analyze_single_fold(
     # Bayesian predictions on TEST
     print(f"    Training Bayesian model (this may take 5-15 minutes)...")
     print(f"    [Bayesian] Compiling Stan model...")
-    bayesian_preds = train_bayesian_and_predict(train_valid, test_valid, feature_cols)
-    print(f"    [Bayesian] ✓ Complete: {len(bayesian_preds)} predictions generated")
+    bayesian_train_preds, bayesian_test_preds = train_bayesian_and_predict(train_valid, test_valid, feature_cols)
+    print(f"    [Bayesian] ✓ Complete: {len(bayesian_test_preds)} predictions generated")
     
     # -------------------------------------------------------------------------
     # Step 1b: FAIR ANALYSIS MODE (v4.2) - Compute thresholds from TRAINING
@@ -659,7 +685,7 @@ def analyze_single_fold(
         # The key fairness is: SAME PERCENTILE for both, NOT fixed 0.5 for XGBoost.
         
         bayesian_fair_threshold = float(np.percentile(
-            bayesian_preds['z_mean'].dropna(), ANALYSIS_MODE_PERCENTILE
+            bayesian_train_preds['z_mean'].dropna(), ANALYSIS_MODE_PERCENTILE
         ))
         print(f"    Bayesian p{ANALYSIS_MODE_PERCENTILE} threshold: {bayesian_fair_threshold:.4f}")
         
@@ -692,8 +718,8 @@ def analyze_single_fold(
     # Compute outbreak thresholds from TRAINING data only
     analyzer.compute_outbreak_thresholds_from_training(train_valid, case_col='cases')
     
-    # Compute Bayesian thresholds from predictions (test data)
-    analyzer.compute_bayesian_thresholds_from_predictions(bayesian_preds, z_col='z_mean')
+    # Compute Bayesian thresholds from TRAINING predictions
+    analyzer.compute_bayesian_thresholds_from_predictions(bayesian_train_preds, z_col='z_mean')
     
     # -------------------------------------------------------------------------
     # Step 3: Identify outbreak episodes in test data
@@ -717,7 +743,7 @@ def analyze_single_fold(
     
     results = analyzer.compute_lead_times(
         episodes=episodes,
-        bayesian_df=bayesian_preds,
+        bayesian_df=bayesian_test_preds,
         xgboost_df=xgboost_preds,
         z_col='z_mean',
         prob_col='prob'
@@ -745,6 +771,17 @@ def analyze_single_fold(
     print(f"    Median lead time: {xgboost_summary.median_lead_time}")
     print(f"    % early warned (≥1 wk): {xgboost_summary.pct_early_warned:.1f}%")
     
+    # Per-row prediction time series (for downstream Phase 7+ scripts)
+    ts_cols = ['state', 'district', 'year', 'week', 'cases', '_row_id']
+    if 'incidence_per_100k' in test_valid.columns:
+        ts_cols.insert(5, 'incidence_per_100k')
+    ts = test_valid[ts_cols].copy()
+    ts['fold'] = fold.fold_name
+    ts['test_year'] = fold.test_year
+    ts['y_true'] = test_valid[target_col].astype(int).values
+    ts = ts.merge(xgboost_preds[['_row_id', 'prob']], on='_row_id', how='left')
+    ts = ts.merge(bayesian_test_preds[['_row_id', 'z_mean', 'z_sd']], on='_row_id', how='left')
+
     return {
         'fold_name': fold.fold_name,
         'test_year': fold.test_year,
@@ -757,7 +794,8 @@ def analyze_single_fold(
         'outbreak_thresholds': dict(analyzer.outbreak_thresholds),
         'bayesian_thresholds': dict(analyzer.bayesian_thresholds),
         'fair_thresholds': fair_thresholds,
-        'effective_xgb_threshold': effective_xgb_threshold
+        'effective_xgb_threshold': effective_xgb_threshold,
+        'test_prediction_timeseries': ts
     }
 
 
@@ -839,6 +877,8 @@ def aggregate_all_folds(
 
 def main():
     """Execute lead-time analysis across all CV folds."""
+
+    global OUTBREAK_PERCENTILE
     
     parser = argparse.ArgumentParser(
         description='Phase 7 Workstream A: Lead-Time Analysis (All Folds)',
@@ -862,11 +902,20 @@ Examples:
         help='Output directory for results'
     )
     parser.add_argument(
+        '--outbreak-percentile',
+        type=int,
+        default=OUTBREAK_PERCENTILE,
+        help='Outbreak percentile threshold (also used for output filenames)'
+    )
+    parser.add_argument(
         '--skip-bayesian',
         action='store_true',
         help='Skip Bayesian model (for debugging XGBoost-only)'
     )
     args = parser.parse_args()
+
+    # Allow CLI override while preserving the existing global-constant structure.
+    OUTBREAK_PERCENTILE = int(args.outbreak_percentile)
     
     # =========================================================================
     # SETUP
@@ -926,6 +975,7 @@ Examples:
     print("-"*70)
     
     fold_outputs = []
+    prediction_frames = []
     failed_folds = []
     
     for fold in folds:
@@ -937,6 +987,10 @@ Examples:
                 target_col=target_col
             )
             fold_outputs.append(fold_output)
+
+            ts = fold_output.get('test_prediction_timeseries')
+            if isinstance(ts, pd.DataFrame) and not ts.empty:
+                prediction_frames.append(ts)
             
         except Exception as e:
             print(f"\n  ERROR in {fold.fold_name}: {e}")
@@ -973,20 +1027,38 @@ Examples:
     print("STEP 5: Saving Outputs")
     print("-"*70)
     
-    # Detail file
+    # Detail file (legacy + percentile-specific)
     detail_path = output_dir / "lead_time_detail_all_folds.csv"
     detail_df.to_csv(detail_path, index=False)
     print(f"  ✓ {detail_path}")
+
+    detail_p_path = output_dir / f"lead_time_detail_p{OUTBREAK_PERCENTILE}.csv"
+    detail_df.to_csv(detail_p_path, index=False)
+    print(f"  ✓ {detail_p_path}")
+
+    # Per-row prediction time series (for downstream Phase 7+ scripts)
+    if prediction_frames:
+        preds_path = output_dir / f"lead_time_predictions_p{OUTBREAK_PERCENTILE}.parquet"
+        pd.concat(prediction_frames, ignore_index=True).to_parquet(preds_path, index=False)
+        print(f"  ✓ {preds_path}")
     
-    # Overall summary
+    # Overall summary (legacy + percentile-specific)
     summary_overall_path = output_dir / "lead_time_summary_overall.csv"
     summary_overall_df.to_csv(summary_overall_path, index=False)
     print(f"  ✓ {summary_overall_path}")
+
+    summary_overall_p_path = output_dir / f"lead_time_summary_overall_p{OUTBREAK_PERCENTILE}.csv"
+    summary_overall_df.to_csv(summary_overall_p_path, index=False)
+    print(f"  ✓ {summary_overall_p_path}")
     
-    # By-fold summary
+    # By-fold summary (legacy + percentile-specific)
     summary_by_fold_path = output_dir / "lead_time_summary_by_fold.csv"
     summary_by_fold_df.to_csv(summary_by_fold_path, index=False)
     print(f"  ✓ {summary_by_fold_path}")
+
+    summary_by_fold_p_path = output_dir / f"lead_time_summary_by_fold_p{OUTBREAK_PERCENTILE}.csv"
+    summary_by_fold_df.to_csv(summary_by_fold_p_path, index=False)
+    print(f"  ✓ {summary_by_fold_p_path}")
     
     # Also save full analysis metadata as JSON
     metadata = {

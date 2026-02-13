@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
-"""
-Phase 6 - Task 3: Decision-Layer Simulation
+"""Experiment 08: Decision-Layer Simulation (Phase 7+ aligned)
 
-Implement uncertainty-aware decision rules on top of Bayesian outputs.
+This script implements uncertainty-aware decision rules on top of the Bayesian
+latent-risk outputs produced in Experiment 06.
+
+IMPORTANT ALIGNMENT CHANGES (Feb 2026):
+- Do NOT refit the Bayesian model here.
+- Consume `results/analysis/lead_time_predictions_p{p}.parquet` from Experiment 06.
+    That file already contains out-of-sample, per-row test predictions for each fold:
+    - `z_mean`, `z_sd` (latent Z summary)
+    - `prob` (XGBoost probability)
+    - `y_true` (label_outbreak)
 
 Decision Zones:
 - GREEN (No Action): P(Z_t > q) < 0.4
 - YELLOW (Monitor): 0.4 ≤ P(Z_t > q) < 0.8 OR high uncertainty
 - RED (Intervene): P(Z_t > q) ≥ 0.8 AND low uncertainty
 
-Evaluation Metrics:
-- Lead time to intervention (RED zone before outbreak)
-- False alarms (RED zone without outbreak)
-- Missed outbreaks (never reached RED)
-- Decision stability (zone transitions)
-- Cost-loss analysis
-
-Output: results/analysis/decision_simulation.json
-
-Reference: Phase 6 decision-theoretic evaluation
-WHO EWARS guidelines, cost-loss decision theory
+Outputs:
+- results/analysis/decision_simulation_p{p}.json
 """
 import sys
 import json
@@ -38,11 +37,6 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.config import load_config
-from src.evaluation.cv import create_rolling_origin_splits
-
-# Add v3 code path for Bayesian model
-v3_code_path = project_root / "versions" / "Vishnu-Version-Hist" / "v3" / "code"
-sys.path.insert(0, str(v3_code_path))
 
 
 # =============================================================================
@@ -75,100 +69,66 @@ class DecisionCosts:
 
 
 # =============================================================================
-# MCMC CONFIGURATION
-# =============================================================================
-
-MCMC_CONFIG = {
-    'n_warmup': 1000,
-    'n_samples': 1000,
-    'n_chains': 4,
-    'adapt_delta': 0.95,
-    'seed': 42
-}
-
-
-# =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
 
-def load_processed_data() -> pd.DataFrame:
-    """Load feature-engineered data."""
-    data_path = project_root / "data" / "processed" / "features_engineered_v01.parquet"
-    df = pd.read_parquet(data_path)
+def _select_predictions_parquet(prefix: str, percentile: int) -> Path:
+    analysis_dir = project_root / "results" / "analysis"
+    preferred = analysis_dir / f"{prefix}_p{percentile}.parquet"
+    if preferred.exists():
+        return preferred
+    raise FileNotFoundError(
+        f"Expected predictions parquet not found: {preferred}. Run experiments/06_analyze_lead_time.py first."
+    )
+
+
+def load_predictions(percentile: int) -> pd.DataFrame:
+    """Load per-row, per-fold test predictions saved by Experiment 06."""
+    path = _select_predictions_parquet("lead_time_predictions", percentile)
+    df = pd.read_parquet(path)
+    needed = {'fold', 'state', 'district', 'year', 'week', 'cases', 'y_true', 'z_mean', 'z_sd'}
+    missing = needed - set(df.columns)
+    if missing:
+        raise RuntimeError(f"Predictions parquet missing required columns: {sorted(missing)}")
     return df
 
 
+def _normal_cdf(x: np.ndarray) -> np.ndarray:
+    """Normal CDF without scipy dependency."""
+    return 0.5 * (1.0 + np.erf(x / np.sqrt(2.0)))
+
+
 def compute_bayesian_risk_scores(
-    train_df: pd.DataFrame,
-    feature_cols: List[str],
-    thresholds: DecisionThresholds
+    preds_df: pd.DataFrame,
+    thresholds: DecisionThresholds,
 ) -> pd.DataFrame:
+    """Compute decision-layer risk scores from stored latent-Z summaries.
+
+    Uses a Normal approximation: Z_t ~ Normal(z_mean, z_sd) to compute
+    prob_high_risk = P(Z_t > q), where q is a global quantile of z_mean.
     """
-    Fit Bayesian model and compute risk scores with uncertainty.
-    
-    Returns DataFrame with:
-    - latent_risk_mean: E[Z_t]
-    - latent_risk_std: SD[Z_t]
-    - prob_high_risk: P(Z_t > q)
-    - uncertainty_cv: Coefficient of variation
-    - alert_zone: GREEN/YELLOW/RED
-    """
-    from src.models.bayesian.state_space import BayesianStateSpace
-    
-    # Prepare valid data
-    valid_df = train_df.dropna(subset=['state', 'district', 'year', 'week', 'cases']).copy()
-    if 'temp_celsius' in valid_df.columns:
-        valid_df = valid_df.dropna(subset=['temp_celsius'])
-    
-    # Fit model
-    X = valid_df[feature_cols].values
-    y = valid_df['cases'].values
-    
-    # NOTE: v6 uses Vishnu's v3 stabilized model (v0.2: phi>0.1, tighter rho prior)
-    stan_path = project_root / "versions" / "Vishnu-Version-Hist" / "v3" / "stan_models" / "hierarchical_ews_v01.stan"
-    
-    model = BayesianStateSpace(
-        stan_model_path=str(stan_path),
-        n_warmup=MCMC_CONFIG['n_warmup'],
-        n_samples=MCMC_CONFIG['n_samples'],
-        n_chains=MCMC_CONFIG['n_chains'],
-        adapt_delta=MCMC_CONFIG['adapt_delta'],
-        seed=MCMC_CONFIG['seed']
-    )
-    
-    print(f"  Fitting Bayesian model on {len(valid_df)} samples...")
-    model.fit(X, y, df=valid_df, feature_cols=feature_cols)
-    
-    # Extract posterior predictive
-    y_rep = model.get_posterior_predictive()  # (n_draws, n_samples)
-    
-    # Compute risk quantile threshold
-    risk_threshold = np.percentile(y_rep.mean(axis=0), thresholds.risk_quantile * 100)
-    
-    # Compute statistics for each time point
-    risk_df = valid_df[['state', 'district', 'year', 'week', 'cases', 'outbreak_p75']].copy()
-    
-    risk_df['latent_risk_mean'] = y_rep.mean(axis=0)
-    risk_df['latent_risk_std'] = y_rep.std(axis=0)
-    risk_df['latent_risk_median'] = np.median(y_rep, axis=0)
-    
-    # P(Z_t > q)
-    risk_df['prob_high_risk'] = (y_rep > risk_threshold).mean(axis=0)
-    
-    # Coefficient of variation (uncertainty measure)
-    risk_df['uncertainty_cv'] = risk_df['latent_risk_std'] / (risk_df['latent_risk_mean'] + 1e-6)
-    
-    # Assign alert zones
-    risk_df['alert_zone'] = risk_df.apply(
-        lambda row: assign_alert_zone(
-            row['prob_high_risk'],
-            row['uncertainty_cv'],
-            thresholds
-        ),
-        axis=1
-    )
-    
-    return risk_df
+    work = preds_df.copy()
+    work = work.dropna(subset=['z_mean', 'z_sd']).copy()
+
+    # Global threshold based on latent risk distribution
+    q = float(np.percentile(work['z_mean'].values, thresholds.risk_quantile * 100))
+
+    mu = work['z_mean'].astype(float).values
+    sd = work['z_sd'].astype(float).values
+    sd = np.maximum(sd, 1e-6)
+    z = (q - mu) / sd
+    prob_high = 1.0 - _normal_cdf(z)
+
+    work['latent_risk_mean'] = mu
+    work['latent_risk_std'] = sd
+    work['prob_high_risk'] = prob_high
+    work['uncertainty_cv'] = work['latent_risk_std'] / (np.abs(work['latent_risk_mean']) + 1e-6)
+    work['alert_zone'] = [
+        assign_alert_zone(p, u, thresholds)
+        for p, u in zip(work['prob_high_risk'].values, work['uncertainty_cv'].values)
+    ]
+
+    return work
 
 
 def assign_alert_zone(
@@ -227,11 +187,15 @@ def evaluate_decision_performance(
     }
     
     # Analyze by district-year episodes
+    # Use y_true (label_outbreak) from Experiment 06 outputs.
     for (state, district, year), group in risk_df.groupby(['state', 'district', 'year']):
         group = group.sort_values('week')
         
         # Check if this year had an outbreak
-        has_outbreak = group['outbreak_p75'].sum() > 0
+        if 'y_true' not in group.columns:
+            continue
+        y = pd.to_numeric(group['y_true'], errors='coerce')
+        has_outbreak = (y == 1).sum() > 0
         
         # Find first RED zone week
         red_weeks = group[group['alert_zone'] == AlertZone.RED.value]
@@ -241,7 +205,7 @@ def evaluate_decision_performance(
             results['outbreaks']['total'] += 1
             
             # Find first outbreak week
-            outbreak_weeks = group[group['outbreak_p75'] == 1]
+            outbreak_weeks = group[pd.to_numeric(group['y_true'], errors='coerce') == 1]
             if len(outbreak_weeks) > 0:
                 first_outbreak_week = outbreak_weeks.iloc[0]['week']
                 
@@ -327,31 +291,19 @@ def evaluate_decision_performance(
 
 
 def simulate_decision_layer_for_fold(
-    df: pd.DataFrame,
+    fold_df: pd.DataFrame,
     fold_name: str,
-    train_idx: np.ndarray,
-    test_idx: np.ndarray,
-    feature_cols: List[str],
     thresholds: DecisionThresholds,
-    costs: DecisionCosts
+    costs: DecisionCosts,
 ) -> Dict[str, Any]:
-    """
-    Simulate decision layer for one CV fold.
-    """
+    """Simulate decision layer for one fold using stored predictions."""
     print(f"\n{'='*60}")
     print(f"Simulating fold: {fold_name}")
     print(f"{'='*60}")
-    
-    train_df = df.iloc[train_idx].copy()
-    test_df = df.iloc[test_idx].copy()
-    
-    # Compute Bayesian risk scores for test set
-    # (Fit on train, but we need to evaluate decisions on test)
-    # For simplicity, we'll fit on train and apply to test districts
-    
-    print("\nStep 1: Computing Bayesian risk scores...")
-    risk_df = compute_bayesian_risk_scores(train_df, feature_cols, thresholds)
-    
+
+    print("\nStep 1: Computing Bayesian risk scores from stored latent Z...")
+    risk_df = compute_bayesian_risk_scores(fold_df, thresholds)
+
     print("\nStep 2: Evaluating decision performance...")
     results = evaluate_decision_performance(risk_df, thresholds, costs)
     
@@ -391,7 +343,9 @@ def main():
     parser = argparse.ArgumentParser(description='Phase 6 Task 3: Decision-Layer Simulation')
     parser.add_argument('--config', type=str, default='config/config_default.yaml',
                        help='Path to config file')
-    parser.add_argument('--output', type=str, default='results/analysis/decision_simulation.json',
+    parser.add_argument('--outbreak-percentile', type=int, default=75,
+                       help='Outbreak percentile used in Experiment 06 outputs (selects lead_time_predictions_p{p}.parquet)')
+    parser.add_argument('--output', type=str, default=None,
                        help='Output JSON file')
     args = parser.parse_args()
     
@@ -402,26 +356,18 @@ def main():
     thresholds = DecisionThresholds()
     costs = DecisionCosts()
     
-    # Load data
-    print("Loading processed data...")
-    df = load_processed_data()
-    print(f"Loaded {len(df)} samples")
-    
-    # Get feature columns
-    feature_cols = [c for c in df.columns if c.startswith('feat_')]
-    print(f"Using {len(feature_cols)} features")
-    
-    # Create CV folds
-    print("\nCreating rolling-origin CV splits...")
-    folds = create_rolling_origin_splits(df)
-    print(f"Created {len(folds)} folds")
-    
-    # Simulate each fold
+    print("Loading stored predictions from Experiment 06...")
+    preds = load_predictions(args.outbreak_percentile)
+    print(f"Loaded {len(preds)} prediction rows across folds")
+
+    # Simulate each fold (preds are already per-fold test sets)
     all_results = []
-    for fold in folds:
+    for fold_name, fold_df in preds.groupby('fold', sort=False):
         fold_result = simulate_decision_layer_for_fold(
-            df, fold.name, fold.train_idx, fold.test_idx,
-            feature_cols, thresholds, costs
+            fold_df=fold_df,
+            fold_name=str(fold_name),
+            thresholds=thresholds,
+            costs=costs,
         )
         all_results.append(fold_result)
     
@@ -495,7 +441,10 @@ def main():
         'fold_results': all_results
     }
     
-    output_path = project_root / args.output
+    if args.output:
+        output_path = project_root / args.output
+    else:
+        output_path = project_root / "results" / "analysis" / f"decision_simulation_p{args.outbreak_percentile}.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     with open(output_path, 'w') as f:

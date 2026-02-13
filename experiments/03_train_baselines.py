@@ -91,10 +91,13 @@ def main():
         default="config/config_default.yaml",
         help="Path to config file"
     )
+    # Feature set selection: FULL=37 features (all feat_*), CORE=20 features (sparse-robust subset)
+    # Default is "core" for feature ablation experiment
+    # To test with full features, run: python 03_train_baselines.py --feature-set=full
     parser.add_argument(
         "--feature-set",
         type=str,
-        default="full",
+        default="core",
         choices=["full", "core"],
         help="Which feature set to use: full (all feat_*) or core (sparse-robust subset)"
     )

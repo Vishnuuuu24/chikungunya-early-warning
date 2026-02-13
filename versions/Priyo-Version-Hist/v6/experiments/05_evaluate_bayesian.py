@@ -199,7 +199,8 @@ def evaluate_single_fold(
     stan_file = get_stan_model_path()
     model_config = {
         **mcmc_config,
-        'stan_file': str(stan_file)
+        'stan_file': str(stan_file),
+        'outbreak_percentile': outbreak_percentile,
     }
     
     model = BayesianStateSpace(config=model_config)

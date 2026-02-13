@@ -95,8 +95,13 @@ class BayesianStateSpace(BaseModel):
         Returns:
             Dictionary formatted for Stan
         """
-        # Sort by district and time
-        df = df.sort_values(['state', 'district', 'year', 'week']).reset_index(drop=True)
+        # Sort by district and time.
+        # If caller provides a unique row id to break ties for duplicate keys,
+        # include it in the sort to preserve deterministic alignment.
+        sort_cols = ['state', 'district', 'year', 'week']
+        if '_unique_row_id' in df.columns:
+            sort_cols.append('_unique_row_id')
+        df = df.sort_values(sort_cols).reset_index(drop=True)
         
         # Create district IDs
         df['district_id'] = pd.factorize(df['state'] + '_' + df['district'])[0] + 1
@@ -206,16 +211,36 @@ class BayesianStateSpace(BaseModel):
         # Get posterior predictive samples
         y_rep = self.fit_.stan_variable('y_rep')  # Shape: (n_samples * n_chains, N)
         
-        # Compute probability of exceeding config-driven percentile of training data
+        # Compute probability of exceeding config-driven percentile of training data.
+        # Use all cases (including zeros) and enforce minimum threshold 1.0 to
+        # align with lead-time outbreak threshold logic.
         y_train = self.data_['y']
         if self.outbreak_percentile is None:
             raise ValueError("outbreak_percentile must be provided via config")
-        threshold = np.percentile(y_train[y_train > 0], self.outbreak_percentile) if np.any(y_train > 0) else 1
+        threshold = float(np.percentile(y_train, self.outbreak_percentile)) if len(y_train) else 1.0
+        threshold = max(threshold, 1.0)
         
         # P(outbreak) = fraction of posterior samples exceeding threshold
         prob_outbreak = (y_rep > threshold).mean(axis=0)
         
         return prob_outbreak
+
+    def get_latent_risk_samples_per_observation(self) -> np.ndarray:
+        """Return posterior samples of latent risk aligned to each observation row."""
+        if not self.is_fitted:
+            raise ValueError("Model not fitted.")
+        if self.data_ is None:
+            raise ValueError("Stan data not prepared.")
+
+        Z = self.get_latent_states()  # (n_draws, D, T_max)
+        district_idx = np.asarray(self.data_['district'], dtype=int) - 1
+        time_idx = np.asarray(self.data_['time'], dtype=int) - 1
+        return Z[:, district_idx, time_idx]
+
+    def get_latent_risk_summary_per_observation(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Return (mean, sd) of latent risk Z for each observation row."""
+        z_samples = self.get_latent_risk_samples_per_observation()
+        return z_samples.mean(axis=0), z_samples.std(axis=0)
     
     def get_diagnostics(self) -> Dict[str, Any]:
         """

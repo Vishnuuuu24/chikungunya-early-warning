@@ -29,11 +29,12 @@ from datetime import datetime, timedelta
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.config import load_config
+from src.config import load_config, get_repo_root
 from src.labels.outbreak_labels import create_outbreak_labels
 
-# Add v3 code path for Bayesian model
-v3_code_path = project_root / "versions" / "Vishnu-Version-Hist" / "v3" / "code"
+# Add v3 code path for Bayesian model (repo-level)
+repo_root = get_repo_root()
+v3_code_path = repo_root / "versions" / "Vishnu-Version-Hist" / "v3" / "code"
 sys.path.insert(0, str(v3_code_path))
 
 
@@ -61,7 +62,7 @@ DPI = 150
 
 def load_processed_data() -> pd.DataFrame:
     """Load feature-engineered data."""
-    data_path = project_root / "data" / "processed" / "features_engineered_v01.parquet"
+    data_path = repo_root / "data" / "processed" / "features_engineered_v01.parquet"
     df = pd.read_parquet(data_path)
     return df
 
@@ -79,15 +80,22 @@ def select_representative_districts(df: pd.DataFrame, n_districts: int = 8) -> L
     """
     district_stats = []
     
+    # Prefer config-driven dynamic labels if present; fall back to legacy outbreak_pXX.
+    outbreak_col = 'label_outbreak'
+    if outbreak_col not in df.columns:
+        legacy = [c for c in df.columns if c.startswith('outbreak_p')]
+        if legacy:
+            outbreak_col = legacy[0]
+
     for (state, district), group in df.groupby(['state', 'district']):
         stats = {
             'state': state,
             'district': district,
-            'n_outbreak_weeks': group['outbreak_p75'].sum(),
+            'n_outbreak_weeks': group[outbreak_col].sum(skipna=True),
             'n_years': group['year'].nunique(),
             'max_cases': group['cases'].max(),
             'total_cases': group['cases'].sum(),
-            'outbreak_rate': group['outbreak_p75'].mean()
+            'outbreak_rate': group[outbreak_col].mean(skipna=True)
         }
         district_stats.append(stats)
     
@@ -127,13 +135,13 @@ def fit_bayesian_model_for_district(
     state: str,
     district: str,
     feature_cols: List[str]
-) -> Tuple[pd.DataFrame, np.ndarray]:
+) -> pd.DataFrame:
     """
     Fit Bayesian model for a specific district and extract latent risk.
     
     Returns:
     - DataFrame with week-level data and risk estimates
-    - posterior predictive samples (n_draws, n_weeks)
+    - risk estimates are computed from latent state samples Z (not y_rep)
     """
     from src.models.bayesian.state_space import BayesianStateSpace
     
@@ -152,34 +160,32 @@ def fit_bayesian_model_for_district(
     X = valid_df[feature_cols].values
     y = valid_df['cases'].values
     
-    # Fit model
-    # NOTE: v6 uses Vishnu's v3 stabilized model (v0.2: phi>0.1, tighter rho prior)
-    stan_path = project_root / "versions" / "Vishnu-Version-Hist" / "v3" / "stan_models" / "hierarchical_ews_v01.stan"
-    
-    model = BayesianStateSpace(
-        stan_model_path=str(stan_path),
-        n_warmup=MCMC_CONFIG['n_warmup'],
-        n_samples=MCMC_CONFIG['n_samples'],
-        n_chains=MCMC_CONFIG['n_chains'],
-        adapt_delta=MCMC_CONFIG['adapt_delta'],
-        seed=MCMC_CONFIG['seed']
-    )
+    # Fit model (v3 API: BayesianStateSpace(config=...))
+    stan_path = repo_root / "versions" / "Vishnu-Version-Hist" / "v3" / "stan_models" / "hierarchical_ews_v01.stan"
+    model_config = {
+        **MCMC_CONFIG,
+        'stan_file': str(stan_path),
+        # Keep percentile config-driven when available; default to 75.
+        'outbreak_percentile': 75,
+    }
+    model = BayesianStateSpace(config=model_config)
     
     print(f"    Fitting model on {len(valid_df)} weeks...")
     model.fit(X, y, df=valid_df, feature_cols=feature_cols)
     
-    # Extract posterior predictive
-    y_rep = model.get_posterior_predictive()  # (n_draws, n_weeks)
-    
+    # Extract latent state samples (Z) aligned to each observation row.
+    # IMPORTANT: Phase 7 "Bayesian risk" corresponds to latent Z, not y_rep.
+    z_samples = model.get_latent_risk_samples_per_observation()  # (n_draws, n_obs)
+
     # Compute statistics
-    valid_df['latent_risk_mean'] = y_rep.mean(axis=0)
-    valid_df['latent_risk_std'] = y_rep.std(axis=0)
-    valid_df['latent_risk_q05'] = np.percentile(y_rep, 5, axis=0)
-    valid_df['latent_risk_q95'] = np.percentile(y_rep, 95, axis=0)
-    valid_df['latent_risk_q25'] = np.percentile(y_rep, 25, axis=0)
-    valid_df['latent_risk_q75'] = np.percentile(y_rep, 75, axis=0)
-    
-    return valid_df, y_rep
+    valid_df['latent_risk_mean'] = z_samples.mean(axis=0)
+    valid_df['latent_risk_std'] = z_samples.std(axis=0)
+    valid_df['latent_risk_q05'] = np.percentile(z_samples, 5, axis=0)
+    valid_df['latent_risk_q95'] = np.percentile(z_samples, 95, axis=0)
+    valid_df['latent_risk_q25'] = np.percentile(z_samples, 25, axis=0)
+    valid_df['latent_risk_q75'] = np.percentile(z_samples, 75, axis=0)
+
+    return valid_df
 
 
 def create_week_dates(year: int, week: int) -> datetime:
@@ -211,8 +217,10 @@ def plot_risk_trajectory(
     plot_df['date'] = plot_df.apply(lambda x: create_week_dates(int(x['year']), int(x['week'])), axis=1)
     plot_df = plot_df.sort_values('date')
     
-    # Compute outbreak threshold
-    threshold = plot_df['cases'].quantile(0.75)
+    # Compute outbreak threshold (config-driven percentile, min 1.0)
+    # This is for visualization only (not CV-safe).
+    threshold = float(np.percentile(plot_df['cases'].dropna().values, 75)) if len(plot_df) else 1.0
+    threshold = max(threshold, 1.0)
     
     # Create figure
     fig, ax = plt.subplots(figsize=FIGSIZE, dpi=DPI)
@@ -320,9 +328,7 @@ def main():
         
         try:
             # Fit Bayesian model
-            plot_df, y_rep = fit_bayesian_model_for_district(
-                df, state, district, feature_cols
-            )
+            plot_df = fit_bayesian_model_for_district(df, state, district, feature_cols)
             
             # Create plot
             safe_name = f"{district.replace(' ', '_')}_{state.replace(' ', '_')}.png"

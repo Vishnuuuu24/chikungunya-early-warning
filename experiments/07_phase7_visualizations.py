@@ -26,6 +26,7 @@ from typing import Dict, List, Any, Tuple, Optional
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
 
@@ -116,6 +117,68 @@ def save_figure_with_description(
             f.write(f"CAVEATS:\n{caveats}\n")
     
     plt.close(fig)
+
+
+def _get_outbreak_percentile_from_metadata(default: int = 75) -> int:
+    meta_path = project_root / "results" / "analysis" / "lead_time_analysis_metadata.json"
+    if not meta_path.exists():
+        return default
+    try:
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        return int(meta.get('config', {}).get('outbreak_percentile', default))
+    except Exception:
+        return default
+
+
+def select_lead_time_detail_file() -> Path:
+    """Prefer percentile-specific lead-time detail CSV; fall back to legacy filename."""
+    p = _get_outbreak_percentile_from_metadata(default=75)
+    analysis_dir = project_root / "results" / "analysis"
+    cand = analysis_dir / f"lead_time_detail_p{p}.csv"
+    if cand.exists():
+        return cand
+    any_p = sorted(analysis_dir.glob('lead_time_detail_p*.csv'))
+    if any_p:
+        return any_p[0]
+    return analysis_dir / "lead_time_detail_all_folds.csv"
+
+
+def select_predictions_parquet() -> Optional[Path]:
+    """Prefer percentile-specific prediction parquet; fall back to any available parquet."""
+    p = _get_outbreak_percentile_from_metadata(default=75)
+    analysis_dir = project_root / "results" / "analysis"
+    cand = analysis_dir / f"lead_time_predictions_p{p}.parquet"
+    if cand.exists():
+        return cand
+    any_p = sorted(analysis_dir.glob('lead_time_predictions_p*.parquet'))
+    if any_p:
+        return any_p[0]
+    return None
+
+
+def _normal_cdf(x: np.ndarray) -> np.ndarray:
+    # Avoid scipy dependency; use erf-based CDF.
+    import math
+
+    erf_vec = np.vectorize(math.erf)
+    return 0.5 * (1.0 + erf_vec(x / math.sqrt(2.0)))
+
+
+def compute_bayes_prob_high_risk(preds: pd.DataFrame, risk_quantile: float = 0.80) -> np.ndarray:
+    """Compute P(Z > q) via Normal(mu=z_mean, sd=z_sd) for plotting/calibration."""
+    work = preds[['z_mean', 'z_sd']].copy()
+    work['z_mean'] = pd.to_numeric(work['z_mean'], errors='coerce')
+    work['z_sd'] = pd.to_numeric(work['z_sd'], errors='coerce')
+    valid = work.dropna()
+    if valid.empty:
+        return np.full(shape=(len(preds),), fill_value=np.nan, dtype=float)
+
+    q = float(np.percentile(valid['z_mean'].values, risk_quantile * 100))
+    mu = pd.to_numeric(preds['z_mean'], errors='coerce').values.astype(float)
+    sd = np.maximum(pd.to_numeric(preds['z_sd'], errors='coerce').values.astype(float), 1e-6)
+    z = (q - mu) / sd
+    return 1.0 - _normal_cdf(z)
 
 
 # =============================================================================
@@ -218,7 +281,7 @@ def plot_lead_time_distribution() -> None:
     print("\n  Generating lead-time distribution plot...")
     
     # Load lead-time results
-    detail_path = project_root / "results" / "analysis" / "lead_time_detail_all_folds.csv"
+    detail_path = select_lead_time_detail_file()
     
     if not detail_path.exists():
         warnings.warn(f"Lead-time detail file not found: {detail_path}")
@@ -312,7 +375,7 @@ def plot_differential_lead_histogram() -> None:
     print("\n  Generating differential lead-time histogram...")
     
     # Load lead-time results
-    detail_path = project_root / "results" / "analysis" / "lead_time_detail_all_folds.csv"
+    detail_path = select_lead_time_detail_file()
     
     if not detail_path.exists():
         warnings.warn(f"Lead-time detail file not found: {detail_path}")
@@ -425,41 +488,80 @@ def plot_case_study_timeseries() -> None:
     """
     print("\n  Generating case study time series...")
     
-    # For case study, we need the actual predictions and cases
-    # This requires re-running a single fold analysis - skip for now
-    # and create a placeholder with documentation
-    
-    fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
-    
-    # Placeholder with explanation
-    for ax in axes:
-        ax.text(0.5, 0.5, 'Case study visualization requires\nper-district prediction data.\n'
-               'See experiments/08_case_study_plots.py\nfor detailed implementation.',
-               ha='center', va='center', fontsize=12,
-               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-        ax.set_xlim(0, 52)
-        ax.set_ylim(0, 1)
-    
-    axes[0].set_title('A. Observed Cases and Outbreak Threshold')
-    axes[1].set_title('B. Bayesian Latent Risk Z_t')
-    axes[2].set_title('C. XGBoost Probability P_t')
-    axes[2].set_xlabel('Week')
-    
+    preds_path = select_predictions_parquet()
+    if preds_path is None:
+        warnings.warn("Prediction parquet not found; run experiments/06_analyze_lead_time.py first.")
+        return
+
+    preds = pd.read_parquet(preds_path)
+    required = {'state', 'district', 'year', 'week', 'cases', 'prob', 'z_mean', 'z_sd', 'y_true'}
+    missing = required - set(preds.columns)
+    if missing:
+        warnings.warn(f"Prediction parquet missing required columns: {sorted(missing)}")
+        return
+
+    preds = preds.copy()
+    preds['y_true'] = pd.to_numeric(preds['y_true'], errors='coerce')
+    preds['cases'] = pd.to_numeric(preds['cases'], errors='coerce')
+    preds['prob'] = pd.to_numeric(preds['prob'], errors='coerce')
+    preds = preds.dropna(subset=['year', 'week', 'cases'])
+
+    # Choose a district automatically: prioritize outbreaks, then peaks.
+    by_dist = (
+        preds.groupby(['state', 'district'], as_index=False)
+        .agg(n_rows=('cases', 'size'), n_outbreak=('y_true', 'sum'), max_cases=('cases', 'max'))
+        .sort_values(['n_outbreak', 'max_cases', 'n_rows'], ascending=False)
+    )
+    if by_dist.empty:
+        warnings.warn("No valid rows found in prediction parquet.")
+        return
+
+    state = str(by_dist.iloc[0]['state'])
+    district = str(by_dist.iloc[0]['district'])
+    sub = preds[(preds['state'] == state) & (preds['district'] == district)].copy()
+    sub = sub.sort_values(['year', 'week']).reset_index(drop=True)
+
+    sub['date'] = pd.to_datetime(sub['year'].astype(int).astype(str)) + pd.to_timedelta((sub['week'].astype(int) - 1) * 7, unit='D')
+    p = _get_outbreak_percentile_from_metadata(default=75)
+    threshold = float(np.percentile(sub['cases'].values, p))
+    sub['p_bayes_high'] = compute_bayes_prob_high_risk(sub, risk_quantile=0.80)
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+
+    # Panel A: cases + threshold + outbreak weeks
+    ax0 = axes[0]
+    ax0.plot(sub['date'], sub['cases'], color='black', linewidth=2, label='Observed cases')
+    ax0.axhline(threshold, color=COLORS['outbreak'], linestyle='--', linewidth=2, label=f'Outbreak threshold (P{p})')
+    outbreak_mask = sub['y_true'].fillna(0) > 0
+    if outbreak_mask.any():
+        ax0.scatter(sub.loc[outbreak_mask, 'date'], sub.loc[outbreak_mask, 'cases'], color=COLORS['outbreak'], s=40, zorder=5, label='Outbreak weeks')
+    ax0.set_title(f"Case Study: {district}, {state}")
+    ax0.set_ylabel('Cases')
+    ax0.legend(loc='upper left')
+    ax0.grid(alpha=0.3)
+
+    # Panel B: probabilities
+    ax1 = axes[1]
+    ax1.plot(sub['date'], sub['prob'], color=COLORS['xgboost'], linewidth=2, label='XGBoost P(outbreak)')
+    ax1.plot(sub['date'], sub['p_bayes_high'], color=COLORS['bayesian'], linewidth=2, label='Bayesian P(Z > q80)')
+    ax1.axhline(0.5, color='gray', linestyle=':', linewidth=1)
+    ax1.set_ylabel('Probability')
+    ax1.set_ylim(0, 1)
+    ax1.legend(loc='upper left')
+    ax1.grid(alpha=0.3)
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=6))
+    plt.xticks(rotation=45, ha='right')
+
     plt.tight_layout()
-    
+
     save_figure_with_description(
-        fig, LEAD_TIME_DIR / "case_study_timeseries_placeholder",
-        title="Case Study Time Series (Placeholder)",
-        description="This figure will show 2-3 case study districts with:\n"
-                   "- Panel A: Observed case counts with outbreak threshold\n"
-                   "- Panel B: Bayesian latent risk Z_t with crossing threshold\n"
-                   "- Panel C: XGBoost probability P_t with 0.5 threshold\n"
-                   "Vertical lines indicate first threshold crossings.",
-        interpretation="Case studies illustrate HOW the models detect outbreaks. "
-                      "Bayesian Z_t may rise gradually before cases spike, "
-                      "while XGBoost P_t may respond more abruptly.",
-        caveats="Placeholder - requires per-district prediction storage. "
-               "See experiments/08_case_study_plots.py for implementation."
+        fig,
+        LEAD_TIME_DIR / "case_study_timeseries",
+        title="Case Study Time Series",
+        description="Two-panel case study for a representative district. Panel A shows observed cases and the outbreak threshold. Panel B shows XGBoost probabilities and a Bayesian high-risk probability derived from latent Z summaries.",
+        interpretation="Case studies illustrate how warning signals evolve relative to observed case escalation. Bayesian latent risk can provide a smoother trajectory; ML probabilities can respond sharply to feature patterns.",
+        caveats="Bayesian probability here is P(Z > q80) using a Normal approximation from (z_mean, z_sd); it is not a direct posterior predictive P(outbreak)."
     )
 
 
@@ -469,19 +571,57 @@ def plot_calibration_curves() -> None:
     """
     print("\n  Generating calibration curves...")
     
-    # Calibration requires stored prediction probabilities
-    # Create placeholder
-    
+    preds_path = select_predictions_parquet()
+    if preds_path is None:
+        warnings.warn("Prediction parquet not found; run experiments/06_analyze_lead_time.py first.")
+        return
+
+    preds = pd.read_parquet(preds_path)
+    required = {'prob', 'z_mean', 'z_sd', 'y_true'}
+    missing = required - set(preds.columns)
+    if missing:
+        warnings.warn(f"Prediction parquet missing required columns: {sorted(missing)}")
+        return
+
+    y = pd.to_numeric(preds['y_true'], errors='coerce')
+    xgb_p = pd.to_numeric(preds['prob'], errors='coerce')
+    bayes_p = pd.Series(compute_bayes_prob_high_risk(preds, risk_quantile=0.80))
+
+    mask = y.notna() & xgb_p.notna()
+    yv = y[mask].astype(int).values
+    xgbv = xgb_p[mask].astype(float).values
+
+    # Bayesian curve uses its own availability mask
+    mask_b = y.notna() & bayes_p.notna()
+    yb = y[mask_b].astype(int).values
+    bv = bayes_p[mask_b].astype(float).values
+
+    def _bin_curve(p: np.ndarray, yy: np.ndarray, n_bins: int = 10):
+        edges = np.linspace(0.0, 1.0, n_bins + 1)
+        xs, ys, ns = [], [], []
+        for lo, hi in zip(edges[:-1], edges[1:]):
+            if hi < 1.0:
+                m = (p >= lo) & (p < hi)
+            else:
+                m = (p >= lo) & (p <= hi)
+            if not np.any(m):
+                continue
+            xs.append(float(np.mean(p[m])))
+            ys.append(float(np.mean(yy[m])))
+            ns.append(int(np.sum(m)))
+        return np.array(xs), np.array(ys), np.array(ns)
+
+    x_xgb, y_xgb, n_xgb = _bin_curve(xgbv, yv, n_bins=10)
+    x_b, y_b, n_b = _bin_curve(bv, yb, n_bins=10)
+
     fig, ax = plt.subplots(figsize=(8, 8))
-    
-    # Perfect calibration line
     ax.plot([0, 1], [0, 1], 'k--', label='Perfect calibration')
-    
-    ax.text(0.5, 0.5, 'Calibration curve requires\nstored prediction probabilities.\n'
-           'See experiments/10_comprehensive_metrics.py\nfor detailed implementation.',
-           ha='center', va='center', fontsize=12,
-           bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    
+
+    if len(x_xgb):
+        ax.plot(x_xgb, y_xgb, marker='o', color=COLORS['xgboost'], label='XGBoost')
+    if len(x_b):
+        ax.plot(x_b, y_b, marker='o', color=COLORS['bayesian'], label='Bayesian P(Z > q80)')
+
     ax.set_xlabel('Mean Predicted Probability')
     ax.set_ylabel('Observed Fraction of Outbreaks')
     ax.set_title('Calibration Curves (Reliability Diagram)')
@@ -489,19 +629,14 @@ def plot_calibration_curves() -> None:
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.grid(alpha=0.3)
-    
+
     save_figure_with_description(
-        fig, CALIBRATION_DIR / "calibration_curves_placeholder",
-        title="Calibration Curves (Placeholder)",
-        description="Reliability diagram showing predicted probability vs "
-                   "observed outbreak fraction for XGBoost (and optionally Bayesian "
-                   "posterior predictive probability).",
-        interpretation="Points above the diagonal indicate underconfidence "
-                      "(observed rate higher than predicted). Points below indicate "
-                      "overconfidence. Perfect calibration lies on diagonal.",
-        caveats="Placeholder - requires stored prediction probabilities. "
-               "Bayesian model outputs risk Z_t, not probability; "
-               "calibration interpretation differs."
+        fig,
+        CALIBRATION_DIR / "calibration_curves",
+        title="Calibration Curves (Reliability Diagram)",
+        description="Reliability diagram comparing XGBoost probabilities against observed outbreak frequency, alongside a Bayesian high-risk probability derived from latent Z summaries.",
+        interpretation="Points near the diagonal indicate good calibration. Deviations indicate over/under-confidence.",
+        caveats="Bayesian curve uses P(Z > q80) (Normal approximation from z_mean/z_sd), which is a high-risk probability proxy rather than a direct posterior predictive outbreak probability."
     )
 
 

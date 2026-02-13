@@ -6,7 +6,8 @@ Phase 7 - Workstream A: Lead-Time Analysis Execution
 
 PURPOSE:
 --------
-    # Removed nan-to-zero imputation
+Execute lead-time analysis for Bayesian vs XGBoost across all rolling-origin
+cross-validation folds (2017-2022). This validates Claim 2: "Latent risk
 inference captures outbreak escalation earlier than binary classifiers."
 
 VERSION: v4 (frozen lead_time.py)
@@ -134,8 +135,9 @@ def prepare_fold_dfs_with_imputation(
     - Neutral fills for known sparse EWS/LAI features
     - Leave remaining missing values as NaN (no global/statistical imputation)
     """
+    # Keep all test weeks; labels are used only for episode definition.
     train = train_df.dropna(subset=[target_col]).copy()
-    test = test_df.dropna(subset=[target_col]).copy()
+    test = test_df.copy()
 
     for subset in (train, test):
         if all(c in subset.columns for c in group_cols + ['year', 'week']):
@@ -165,6 +167,10 @@ def prepare_fold_dfs_with_imputation(
             train[col] = train[col].fillna(neutral_val)
         if col in test.columns:
             test[col] = test[col].fillna(neutral_val)
+
+    # Ensure feature matrices are numeric (pd.NA -> NaN) for model fitting.
+    train[feature_cols] = train[feature_cols].apply(pd.to_numeric, errors='coerce').astype('float64')
+    test[feature_cols] = test[feature_cols].apply(pd.to_numeric, errors='coerce').astype('float64')
 
     return train, test
 
@@ -514,21 +520,26 @@ def train_bayesian_and_predict(
     print(f"    [Bayesian] ✓ MCMC sampling complete")
     print(f"    [Bayesian] ✓ MCMC sampling complete")
     
-    # Get posterior predictive for all time points
+    # Extract latent risk Z_t aligned to each observation row.
+    # IMPORTANT: do NOT use posterior predictive counts (y_rep) as a proxy for Z.
+    # Using y_rep makes the Bayesian signal case-like and tends to produce
+    # reactive triggers (median lead time ~ 0).
     print(f"    [Bayesian] Extracting latent risk Z_t from posterior...")
-    y_rep = model.get_posterior_predictive()  # Shape: (n_draws, N)
-    
-    # ASSERTION: y_rep must have exactly N columns
-    if y_rep.shape[1] != n_total:
+    try:
+        z_mean, z_sd = model.get_latent_risk_summary_per_observation()
+    except AttributeError as e:
         raise RuntimeError(
-            f"STATE-SPACE INDEXING ERROR: y_rep has {y_rep.shape[1]} columns "
+            "BayesianStateSpace is missing get_latent_risk_summary_per_observation(). "
+            "Ensure the v3 Bayesian wrapper exposes latent-Z per-observation extraction."
+        ) from e
+
+    # ASSERTION: z_mean must have exactly N entries
+    if len(z_mean) != n_total:
+        raise RuntimeError(
+            f"STATE-SPACE INDEXING ERROR: z_mean has {len(z_mean)} entries "
             f"but combined_df has {n_total} rows. "
-            f"This indicates a fundamental mismatch in the Stan model output."
+            f"This indicates a mismatch in latent-state extraction."
         )
-    
-    # Compute summary statistics
-    z_mean = y_rep.mean(axis=0)
-    z_sd = y_rep.std(axis=0)
     
     # =========================================================================
     # Step 4: Assign z_mean to the sorted DataFrame
@@ -604,7 +615,7 @@ def analyze_single_fold(
     outbreak_value_col: str = 'incidence_per_100k',
     skip_bayesian: bool = False,
 ) -> Dict[str, Any]:
-        # Leave NaNs unchanged (conservative missingness handling)
+    """
     Run complete lead-time analysis for a single CV fold.
     
     Args:
@@ -806,7 +817,7 @@ def analyze_single_fold(
     ts_df = test_valid[meta_cols].copy()
     ts_df['fold'] = fold.fold_name
     ts_df['test_year'] = fold.test_year
-    ts_df['y_true'] = test_valid[target_col].astype(int).values
+    ts_df['y_true'] = test_valid[target_col].astype('Int64')
 
     if '_row_id' in xgboost_preds.columns:
         ts_df = ts_df.merge(
@@ -928,11 +939,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='Phase 7 Workstream A: Lead-Time Analysis (All Folds)',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-    python experiments/06_analyze_lead_time.py
-    python experiments/06_analyze_lead_time.py --skip-bayesian  # For debugging
-        """
+        epilog=""
     )
     parser.add_argument(
         '--config',

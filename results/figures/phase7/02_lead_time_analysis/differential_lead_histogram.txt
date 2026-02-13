@@ -8,4 +8,4 @@ WHY IT MATTERS:
 If ΔL > 0: Bayesian provided more advance warning. If ΔL < 0: XGBoost provided more advance warning. If ΔL = 0: Both models warned at the same time.
 
 CAVEATS:
-Only includes episodes where BOTH models warned. Episodes where one or both never warned are excluded. Small sample (n=2) reflects sparse outbreak data.
+Only includes episodes where BOTH models warned. Episodes where one or both never warned are excluded. Small sample (n=1) reflects sparse outbreak data.

@@ -332,10 +332,10 @@ def plot_differential_lead_histogram() -> None:
     print("\n  Generating differential lead-time histogram...")
     
     # Load lead-time results
-    detail_path = project_root / "results" / "analysis" / "lead_time_detail_all_folds.csv"
+    detail_path = select_lead_time_file("lead_time_detail", "csv")
     
-    if not detail_path.exists():
-        warnings.warn(f"Lead-time detail file not found: {detail_path}")
+    if detail_path is None or not detail_path.exists():
+        warnings.warn("Lead-time detail file not found (lead_time_detail_p*.csv)")
         return
     
     df = pd.read_csv(detail_path)
@@ -551,7 +551,7 @@ def plot_calibration_curves() -> None:
     # Prefer Track A stored CV predictions if available; fallback to lead-time predictions.
     preds_dir = project_root / "results" / "predictions"
     baseline_preds_path = preds_dir / "baseline_cv_predictions_xgboost.parquet"
-    lead_time_preds_path = project_root / "results" / "analysis" / "lead_time_predictions_all_folds.parquet"
+    lead_time_preds_path = select_lead_time_file("lead_time_predictions", "parquet")
 
     if not baseline_preds_path.exists():
         # Sensitivity runs write suffixed files (e.g., baseline_cv_predictions_xgboost_p75.parquet).
@@ -568,7 +568,7 @@ def plot_calibration_curves() -> None:
         y_true = df['y_true'].to_numpy(dtype=int)
         y_prob = df['y_pred_proba'].to_numpy(dtype=float)
         source = str(baseline_preds_path)
-    elif lead_time_preds_path.exists():
+    elif lead_time_preds_path is not None and lead_time_preds_path.exists():
         df = pd.read_parquet(lead_time_preds_path)
         if 'y_true' not in df.columns or 'prob' not in df.columns:
             warnings.warn(f"Lead-time predictions missing y_true/prob: {lead_time_preds_path}")
@@ -625,10 +625,92 @@ def plot_calibration_curves() -> None:
 
 
 def plot_decision_state_timeline() -> None:
-    """Skip decision timeline until operational rules are implemented."""
-    print("\n  Skipping decision state timeline (no operational rules implemented).")
-    warnings.warn("Decision-state timeline removed to avoid illustrative outputs.")
-    return
+    """Plot decision-state timeline using stored lead-time predictions."""
+    print("\n  Generating decision state timeline...")
+
+    preds_path = select_lead_time_file("lead_time_predictions", "parquet")
+    detail_path = select_lead_time_file("lead_time_detail", "csv")
+
+    if preds_path is None or detail_path is None or not preds_path.exists() or not detail_path.exists():
+        warnings.warn(
+            "Decision timeline requires lead-time outputs: "
+            "lead_time_predictions_p*.parquet and lead_time_detail_p*.csv"
+        )
+        return
+
+    preds = pd.read_parquet(preds_path)
+    episodes = pd.read_csv(detail_path)
+    if episodes.empty:
+        warnings.warn("No outbreak episodes found for decision timeline")
+        return
+
+    ep = episodes.iloc[0]
+    state = ep['state']
+    district = ep['district']
+    year = int(ep['year'])
+
+    ts = preds[(preds['state'] == state) & (preds['district'] == district) & (preds['year'] == year)].copy()
+    if ts.empty:
+        warnings.warn(f"No prediction time series found for {state}/{district}/{year}")
+        return
+
+    ts = ts.sort_values('week')
+    weeks = ts['week'].to_numpy(dtype=int)
+    cases = ts['cases'].to_numpy(dtype=float) if 'cases' in ts.columns else None
+    prob = ts['prob'].to_numpy(dtype=float) if 'prob' in ts.columns else None
+    z_mean = ts['z_mean'].to_numpy(dtype=float) if 'z_mean' in ts.columns else None
+
+    outbreak_threshold = float(ep.get('outbreak_threshold', np.nan))
+    bayes_threshold = float(ep.get('bayesian_threshold', np.nan))
+    xgb_threshold = float(ep.get('xgboost_threshold', np.nan))
+    t_outbreak = ep.get('first_outbreak_week', ep.get('outbreak_week', np.nan))
+    if pd.isna(outbreak_threshold) or pd.isna(bayes_threshold) or pd.isna(xgb_threshold):
+        warnings.warn("Decision timeline missing thresholds in lead_time_detail")
+        return
+
+    if cases is None or prob is None or z_mean is None:
+        warnings.warn("Decision timeline requires cases, prob, and z_mean in predictions")
+        return
+
+    outbreak_mask = cases > outbreak_threshold
+    bayes_mask = z_mean >= bayes_threshold
+    xgb_mask = prob >= xgb_threshold
+
+    fig, axes = plt.subplots(3, 1, figsize=(14, 4.5), sharex=True)
+
+    def plot_state_row(ax, mask, color, label):
+        ax.fill_between(weeks, 0, 1, color='#F0F0F0', step='mid')
+        ax.fill_between(weeks, 0, 1, where=mask, color=color, alpha=0.85, step='mid')
+        ax.set_ylim(0, 1)
+        ax.set_yticks([])
+        ax.set_ylabel(label, rotation=0, labelpad=35, va='center')
+        ax.grid(axis='x', alpha=0.2)
+
+    plot_state_row(axes[0], outbreak_mask, COLORS['outbreak'], 'Outbreak')
+    plot_state_row(axes[1], bayes_mask, COLORS['bayesian'], 'Bayesian')
+    plot_state_row(axes[2], xgb_mask, COLORS['xgboost'], 'XGBoost')
+
+    if pd.notna(t_outbreak):
+        for ax in axes:
+            ax.axvline(int(t_outbreak), color=COLORS['outbreak'], linestyle=':', linewidth=1.5)
+
+    axes[2].set_xlabel('Week')
+    axes[0].set_title(f"Decision State Timeline ({state} / {district}, {year})")
+
+    plt.tight_layout()
+
+    save_figure_with_description(
+        fig,
+        DECISION_DIR / "decision_state_timeline",
+        title="Decision State Timeline",
+        description="Binary alert states over weeks for a single district-year. "
+                    "Rows show outbreak weeks (cases above threshold), Bayesian alerts, "
+                    "and XGBoost alerts, computed from stored predictions and thresholds.",
+        interpretation="Shows how model alerts align with observed outbreak timing in a "
+                      "real district-year sequence.",
+        caveats="Uses the first available outbreak episode in lead-time outputs. "
+               "Thresholds come from the corresponding lead_time_detail_p*.csv."
+    )
 
 
 def create_readme() -> None:

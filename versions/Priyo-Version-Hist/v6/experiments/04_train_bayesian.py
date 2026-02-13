@@ -138,11 +138,16 @@ def main():
     
     from src.models.bayesian.state_space import BayesianStateSpace
     
+    outbreak_percentile = cfg.get('labels', {}).get('outbreak_percentile')
+    if outbreak_percentile is None:
+        raise ValueError("Missing labels.outbreak_percentile in config.")
+
     model_config = {
         'n_warmup': args.n_warmup,
         'n_samples': args.n_samples,
         'n_chains': args.n_chains,
-        'seed': 42
+        'seed': 42,
+        'outbreak_percentile': int(outbreak_percentile),
     }
     
     model = BayesianStateSpace(config=model_config)

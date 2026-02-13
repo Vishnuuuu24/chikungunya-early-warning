@@ -53,12 +53,16 @@ def main():
     if score_threshold is None:
         raise ValueError("Missing processing.score_threshold in config.")
 
+    cases_imputation = cfg.get('processing', {}).get('imputation', {}).get('cases')
+    if cases_imputation is None:
+        raise ValueError("Missing processing.imputation.cases in config.")
+
     # Build panel
     panel = build_panel(
         epiclim_path=epiclim_path,
         census_path=census_path,
         disease=cfg['processing']['disease_filter'],
-        cases_imputation_strategy=cfg.get('processing', {}).get('imputation', {}).get('cases', 'zero_fill'),
+        cases_imputation_strategy=cases_imputation,
         output_path=output_path,
         score_threshold=int(score_threshold),
     )

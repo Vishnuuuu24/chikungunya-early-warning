@@ -22,7 +22,7 @@ data {
 parameters {
   // Hierarchical intercepts (non-centered parameterization)
   real mu_alpha;                     // Population mean baseline
-  real<lower=0> sigma_alpha;         // Between-district SD
+  real<lower=0, upper=5> sigma_alpha; // Between-district SD
   vector[D] alpha_raw;               // Raw district effects (std normal)
   
   // AR(1) coefficient
@@ -32,10 +32,10 @@ parameters {
   real beta_temp;                    // Temperature coefficient
   
   // Process noise
-  real<lower=0> sigma;               // Innovation SD
+  real<lower=0, upper=5> sigma;      // Innovation SD
   
   // Observation model
-  real<lower=0> phi;                 // NegBin dispersion (higher = more overdispersion)
+  real<lower=-20, upper=20> phi_raw; // Bounded to avoid softplus under/overflow
   
   // Latent states (excluding Z_0 which is fixed at 0)
   matrix[D, T_max] z_raw;            // Raw innovations for latent states
@@ -44,6 +44,9 @@ parameters {
 transformed parameters {
   // Non-centered district intercepts
   vector[D] alpha = mu_alpha + sigma_alpha * alpha_raw;
+
+  // NegBin dispersion (softplus for stability)
+  real phi = log1p_exp(phi_raw);
   
   // Latent log-risk states
   matrix[D, T_max] Z;
@@ -78,8 +81,8 @@ model {
   // Process noise
   sigma ~ normal(0, 0.5);            // Half-normal
   
-  // Observation dispersion
-  phi ~ gamma(2, 0.5);
+  // Observation dispersion (correct Jacobian for softplus)
+  target += gamma_lpdf(phi | 2, 0.5) + log_inv_logit(phi_raw);
   
   // Latent state innovations
   to_vector(z_raw) ~ std_normal();

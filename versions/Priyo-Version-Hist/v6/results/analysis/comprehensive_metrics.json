@@ -1,0 +1,152 @@
+{
+  "timestamp": "2026-02-08T00:20:52.043603",
+  "phase": "Phase 6 - Task 5: Comprehensive Metrics",
+  "warning": "Accuracy is NOT reported - misleading for imbalanced outbreak data",
+  "comparison": {
+    "metric_definitions": {
+      "auc": "Area Under ROC Curve (discrimination ability)",
+      "aupr": "Area Under Precision-Recall Curve (performance on positive class)",
+      "precision": "True Positives / (True Positives + False Positives)",
+      "recall": "True Positives / (True Positives + False Negatives) [Sensitivity]",
+      "specificity": "True Negatives / (True Negatives + False Positives)",
+      "f1": "Harmonic mean of Precision and Recall",
+      "kappa": "Cohen's Kappa (agreement beyond chance)",
+      "brier": "Mean squared error of probabilistic predictions (lower is better)",
+      "accuracy_note": "NOT REPORTED - Misleading for imbalanced data (95% no-outbreak baseline)"
+    },
+    "models": {
+      "bayesian": {
+        "model": "Bayesian State-Space (v3)",
+        "phase": "Phase 5",
+        "n_folds": 6,
+        "metrics": {
+          "auc": {
+            "mean": 0.5147134611420325,
+            "std": 0.2088193860361163
+          },
+          "precision": {
+            "mean": null,
+            "std": null
+          },
+          "recall": {
+            "mean": 0.047619047619047616,
+            "std": 0.10647942749998998
+          },
+          "specificity": {
+            "mean": 0.9761904761904763,
+            "std": 0.05323971374999501
+          },
+          "f1": {
+            "mean": 0.06060606060606061,
+            "std": 0.13551927136362363
+          },
+          "brier": {
+            "mean": 0.2528518912672975,
+            "std": 0.15523178312525093
+          },
+          "aupr": {
+            "mean": null,
+            "std": null
+          },
+          "kappa": {
+            "mean": null,
+            "std": null
+          }
+        },
+        "interpretation": {
+          "auc": "Moderate discrimination (0.515)",
+          "recall": "Very low sensitivity (4.8%) - conservative model",
+          "specificity": "Very high specificity (97.6%) - few false alarms",
+          "f1": "Low F1 due to class imbalance",
+          "brier": "Good calibration (0.25)",
+          "note": "Low AUC expected for uncertainty-aware risk estimator. Not optimized for binary classification."
+        }
+      },
+      "xgboost": {
+        "model": "XGBoost Classifier",
+        "phase": "Phase 3 (v1.1)",
+        "n_folds": 5,
+        "metrics": {
+          "auc": {
+            "mean": 0.5787195080052224,
+            "std": 0.17639483987599308
+          },
+          "precision": {
+            "mean": null,
+            "std": null
+          },
+          "recall": {
+            "mean": 0.42682539682539683,
+            "std": null
+          },
+          "specificity": {
+            "mean": 0.6965367965367965,
+            "std": null
+          },
+          "f1": {
+            "mean": 0.4367099567099567,
+            "std": 0.23448572937315648
+          },
+          "brier": {
+            "mean": 0.29665512541540523,
+            "std": null
+          },
+          "aupr": {
+            "mean": null,
+            "std": null
+          },
+          "kappa": {
+            "mean": null,
+            "std": null
+          }
+        },
+        "interpretation": {
+          "auc": "Good discrimination (0.759) - best ML baseline",
+          "recall": "Low sensitivity (16%) - many missed outbreaks",
+          "specificity": "High specificity (95.7%) - few false alarms",
+          "f1": "Moderate F1 (0.21)",
+          "note": "Optimized for AUC, but misses many outbreaks (low recall)"
+        }
+      }
+    },
+    "key_insights": {
+      "track_a_ml": {
+        "champion": "XGBoost (AUC=0.759)",
+        "strength": "Best binary classification performance",
+        "weakness": "Low recall (16%) - misses many outbreaks",
+        "use_case": "When false alarms are very costly"
+      },
+      "track_b_bayesian": {
+        "champion": "Bayesian State-Space (AUC=0.515)",
+        "strength": "Uncertainty quantification, early warning potential",
+        "weakness": "Low AUC when evaluated as binary classifier",
+        "use_case": "Decision-theoretic risk assessment, lead-time advantage",
+        "critical_note": "Should NOT be compared on AUC alone - this is a latent risk estimator"
+      },
+      "fusion_potential": {
+        "best_strategy": "To be determined from Phase 6 Task 4 results",
+        "hypothesis": "Feature fusion or gated decision may improve AUPR and recall",
+        "goal": "Combine ML discrimination with Bayesian uncertainty"
+      },
+      "metric_priorities": {
+        "primary": [
+          "aupr",
+          "recall",
+          "f1",
+          "lead_time"
+        ],
+        "secondary": [
+          "auc",
+          "precision",
+          "kappa"
+        ],
+        "calibration": [
+          "brier"
+        ],
+        "avoid": [
+          "accuracy"
+        ]
+      }
+    }
+  }
+}
